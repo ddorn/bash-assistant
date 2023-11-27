@@ -9,6 +9,7 @@ from pygments.lexers.shell import BashLexer
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.shortcuts import message_dialog
 import prompt_toolkit as pt
+from pathlib import Path
 
 MODEL = "gpt-4"
 
@@ -28,9 +29,12 @@ You will be shown the output of the command, but you cannot interact with it.
 Your answers are concise. You don't ask the user before running a command, just run it. Don't provide explanations unless asked.
 """.strip()
 
+CACHE_DIR = Path(os.environ.get("XDG_CACHE_HOME", "~/.cache")).expanduser() / "bash-assistant"
+CACHE_DIR.mkdir(parents=True, exist_ok=True)
+
 BASH_CONSOLE = pt.PromptSession(
     message="run: ",
-    history=FileHistory("commands.txt"),
+    history=FileHistory(CACHE_DIR / "commands.txt"),
     auto_suggest=AutoSuggestFromHistory(),
     vi_mode=VI_MODE,
     lexer=PygmentsLexer(BashLexer),
@@ -39,7 +43,7 @@ BASH_CONSOLE = pt.PromptSession(
 BINDINGS = KeyBindings()
 PROMPTS_CONSOLE = pt.PromptSession(
     message="> ",
-    history=FileHistory("history.txt"),
+    history=FileHistory(CACHE_DIR / "history.txt"),
     auto_suggest=AutoSuggestFromHistory(),
     vi_mode=VI_MODE,
     key_bindings=BINDINGS,
@@ -89,7 +93,6 @@ def get_audio_input(event):
     event.current_buffer.insert_text(transcript.text)
 
 
-
 def run_suggested_command(command: str) -> tuple[str, str]:
     """Run a command suggested by the assistant. Return the possibly edited command and the output."""
     try:
@@ -123,7 +126,7 @@ def stream_response(response):
             break
 
         answer += text
-        print(text, end="")
+        print(text, end="", flush=True)
         if BASH_END in answer:
             answer = answer.rstrip()
             break
@@ -164,6 +167,7 @@ def main():
             executed = ""
 
         messages.append({"role": "assistant", "content": answer})
+
 
 if __name__ == '__main__':
     try:
