@@ -1,13 +1,14 @@
+from contextlib import contextmanager
 import os
 import subprocess
+from typing import Literal
 
-from openai import OpenAI
+import openai
 from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.lexers import PygmentsLexer
 from pygments.lexers.shell import BashLexer
 from prompt_toolkit.key_binding import KeyBindings
-from prompt_toolkit.shortcuts import message_dialog
 import prompt_toolkit as pt
 from pathlib import Path
 
@@ -17,16 +18,17 @@ VI_MODE = True
 BASH_START = "<bash>"
 BASH_END = "</bash>"
 
-STYLE_SYSTEM = "\033[38;5;240m"
+STYLE_SYSTEM = "\033[38;5;250m"
 STYLE_ASSISTANT = "\033[38;5;39m"
 STYLE_RESPONSE = "\033[38;5;208m"
 STYLE_END = "\033[0m"
 
-SYSTEM = f"""
+SYSTEM_PROMPT = f"""
 You are being run in a scaffold on an archlinux machine running bash. You can access any file and program on the machine.
 When you need to run a bash command, wrap it in {BASH_START} and {BASH_END} tags.
 You will be shown the output of the command, but you cannot interact with it.
-Your answers are concise. You don't ask the user before running a command, just run it. Don't provide explanations unless asked.
+Your answers are concise. You don't ask the user before running a command, just run it. You assume most things that the user did not specify. When you need more info, you use cat, ls or pwd.
+Don't provide explanations unless asked.
 """.strip()
 
 CACHE_DIR = Path(os.environ.get("XDG_CACHE_HOME", "~/.cache")).expanduser() / "bash-assistant"
@@ -79,9 +81,7 @@ def get_audio_input(event):
     RECORDING.wait()
     RECORDING = None
 
-    client = OpenAI()
-
-    transcript = client.audio.transcriptions.create(
+    transcript = openai.audio.transcriptions.create(
         model="whisper-1",
         file=open("temp.mp3", "rb")
     )
@@ -101,55 +101,77 @@ def run_suggested_command(command: str) -> tuple[str, str]:
         return command, "Command was cancelled by the user."
 
     # Run the command while streaming the output to the terminal and capturing it.
-    print(STYLE_RESPONSE, end="")
-    try:
-        with subprocess.Popen(to_run, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT) as proc:
-            output = ""
-            for line in proc.stdout:
-                line = line.decode()
-                print(line, end="")
-                output += line
-    except KeyboardInterrupt:
-        output += "^C Interrupted"
-
-    print(STYLE_END, end="")
+    with style("response"):
+        try:
+            with subprocess.Popen(to_run, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT) as proc:
+                output = ""
+                for line in proc.stdout:
+                    line = line.decode()
+                    print(line, end="")
+                    output += line
+        except KeyboardInterrupt:
+            output += "^C Interrupted"
 
     return to_run, output
 
 
-def stream_response(response):
-    answer = ""
-    print(STYLE_ASSISTANT + "Assistant: ", end="")
-    for chunk in response:
-        text = chunk.choices[0].delta.content
-        if text is None:
-            break
+def get_response(messages: list[dict], end_after: str = BASH_END) -> str:
+    response = openai.chat.completions.create(
+        model=MODEL,
+        messages=messages,
+        stream=True,
+    )
 
-        answer += text
-        print(text, end="", flush=True)
-        if BASH_END in answer:
-            answer = answer.rstrip()
-            break
-    print(STYLE_END)
+    with style("assistant"):
+        answer = ""
+        for chunk in response:
+            text = chunk.choices[0].delta.content
+            if text is None:
+                break
+
+            answer += text
+            print(text, end="", flush=True)
+            if end_after in answer:
+                answer = answer[:answer.find(end_after)] + end_after
+                break
+    print()
+
     return answer
 
 
+@contextmanager
+def style(kind: Literal["system", "assistant", "response"]):
+    match kind:
+        case "system":
+            print(STYLE_SYSTEM + "System: ", end="")
+        case "assistant":
+            print(STYLE_ASSISTANT + "Assistant: ", end="")
+        case "response":
+            print(STYLE_RESPONSE, end="")
+        case _:
+            raise ValueError(f"Unknown style: {kind}")
+
+    yield
+
+    print(STYLE_END, end="")
+
+
 def main():
-    client = OpenAI()
 
-    messages = [{"role": "system", "content": SYSTEM}]
-    executed = ""
+    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    last_command_result = ""
 
-    print(f"{STYLE_SYSTEM}System: {SYSTEM}{STYLE_END}")
+    with style("system"):
+        print(SYSTEM_PROMPT)
+
     while True:
-        question = executed + PROMPTS_CONSOLE.prompt()
-        messages.append({"role": "user", "content": question})
+        question = PROMPTS_CONSOLE.prompt()
+        messages.append({
+            "role": "user",
+            "content": last_command_result + question
+        })
 
-        answer = stream_response(client.chat.completions.create(
-            model=MODEL,
-            messages=messages,
-            stream=True,
-        ))
+        answer = get_response(messages)
 
         # Ask to run the bash command
         if (start := answer.find(BASH_START)) != -1 and \
@@ -162,10 +184,11 @@ def main():
 
             # Replace the command with the one that was actually run.
             answer = answer[:start] + command + answer[end:]
-            executed = f"\n<response>{output}</response>"
+            last_command_result = f"\n<response>{output}</response>"
         else:
-            executed = ""
+            last_command_result = ""
 
+        # We do it at the end, because the user might have edited the command.
         messages.append({"role": "assistant", "content": answer})
 
 
