@@ -1,3 +1,7 @@
+#!/usr/bin/env python3
+
+"""A bash assistant that can run commands and answer questions about the system."""
+
 from contextlib import contextmanager
 import os
 import subprocess
@@ -11,6 +15,13 @@ from pygments.lexers.shell import BashLexer
 from prompt_toolkit.key_binding import KeyBindings
 import prompt_toolkit as pt
 from pathlib import Path
+
+# Check that the API key is set.
+os.environ.setdefault("OPENAI_API_KEY", "")  # You can add it here too
+if not (key := os.environ.get("OPENAI_API_KEY")):
+    print("Please set the OPENAI_API_KEY environement variable to your API key: 'sk-...'.")
+    print("Or add it in the code, two lines above this message.")
+    exit(1)
 
 MODEL = "gpt-4"
 
