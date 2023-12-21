@@ -5,6 +5,7 @@
 from contextlib import contextmanager
 import os
 import subprocess
+import time
 from typing import Literal
 
 import openai
@@ -110,6 +111,15 @@ def run_suggested_command(command: str) -> tuple[str, str]:
         to_run = BASH_CONSOLE.prompt(default=command)
     except KeyboardInterrupt:
         return command, "Command was cancelled by the user."
+
+    # Add the command to the user's zsh history.
+    zsh_history_path = os.environ.get("HISTFILE", "~/.zsh_history")
+    zsh_history_path = Path(zsh_history_path).expanduser()
+    # Format the command to be added to the history.
+    to_run = to_run.replace("\n", "\\\n")
+    with open(zsh_history_path, "a") as f:
+        f.write(f": {int(time.time())}:0;{to_run}\n")
+
 
     # Run the command while streaming the output to the terminal and capturing it.
     with style("response"):
