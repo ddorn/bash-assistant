@@ -24,7 +24,7 @@ if not (key := os.environ.get("OPENAI_API_KEY")):
     print("Or add it in the code, two lines above this message.")
     exit(1)
 
-MODEL = "gpt-4"
+MODEL = "gpt-4-1106-preview"
 
 VI_MODE = True
 BASH_START = "<bash>"
