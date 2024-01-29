@@ -3,10 +3,15 @@
 """A bash assistant that can run commands and answer questions about the system."""
 
 from contextlib import contextmanager
+import difflib
 import os
+from random import choice
+import re
 import subprocess
 import time
 from typing import Literal
+import click
+import tempfile
 
 import openai
 from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
@@ -17,6 +22,9 @@ from prompt_toolkit.key_binding import KeyBindings
 import prompt_toolkit as pt
 from pathlib import Path
 
+from constants import *
+from utils import ai_query, fmt_diff, get_text_input
+
 # Check that the API key is set.
 os.environ.setdefault("OPENAI_API_KEY", "")  # You can add it here too
 if not (key := os.environ.get("OPENAI_API_KEY")):
@@ -24,16 +32,7 @@ if not (key := os.environ.get("OPENAI_API_KEY")):
     print("Or add it in the code, two lines above this message.")
     exit(1)
 
-MODEL = "gpt-4-1106-preview"
 
-VI_MODE = True
-BASH_START = "<bash>"
-BASH_END = "</bash>"
-
-STYLE_SYSTEM = "\033[38;5;250m"
-STYLE_ASSISTANT = "\033[38;5;39m"
-STYLE_RESPONSE = "\033[38;5;208m"
-STYLE_END = "\033[0m"
 
 SYSTEM_PROMPT = f"""
 You are being run in a scaffold on an archlinux machine running bash. You can access any file and program on the machine.
@@ -43,8 +42,6 @@ Your answers are concise. You don't ask the user before running a command, just 
 Don't provide explanations unless asked.
 """.strip()
 
-CACHE_DIR = Path(os.environ.get("XDG_CACHE_HOME", "~/.cache")).expanduser() / "bash-assistant"
-CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
 BASH_CONSOLE = pt.PromptSession(
     message="run: ",
@@ -177,14 +174,34 @@ def style(kind: Literal["system", "assistant", "response"]):
     print(STYLE_END, end="")
 
 
-def main():
+@click.group(invoke_without_command=True)
+@click.pass_context
+def cli(ctx):
+    # If no command is given, run the bash assistant.
+    if ctx.invoked_subcommand is None:
+        ctx.invoke(bash_scaffold)
 
-    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+
+@cli.command(name="no")
+@click.option.pass_context
+def no(ctx):
+    """Run the bash assistant without the prompt."""
+    ctx.invoke(bash_scaffold, no_prompt=True)
+
+
+@cli.command(name="bash")
+@click.option("-n", "--no-prompt", is_flag=True, help="Don't use a prompt.")
+def bash_scaffold(no_prompt: bool):
+
+    if no_prompt:
+        messages = []
+    else:
+        messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+
+        with style("system"):
+            print(SYSTEM_PROMPT)
+
     last_command_result = ""
-
-    with style("system"):
-        print(SYSTEM_PROMPT)
-
     while True:
         question = PROMPTS_CONSOLE.prompt()
         messages.append({
@@ -213,8 +230,81 @@ def main():
         messages.append({"role": "assistant", "content": answer})
 
 
+@cli.command(name="fix")
+@click.argument("text", type=str, default=None, required=False)
+@click.option("-c", "--clean-only", is_flag=True, help="Only print the cleaned text")
+@click.option("-n", "--no-color", is_flag=True, help="Don't colorize the diff. Implies --clean-only")
+def fix_typos(text: str, clean_only: bool, no_color: bool):
+    """Fix typos in the given text."""
+
+    text = get_text_input(text)
+
+    system = """
+You are given a text and you need to fix the language (typos, grammar, ...).
+If needed, fix also the formatting.
+Output directly the corrected text, without any comment.
+""".strip()
+
+    corrected = ai_query(system, text)
+
+    if no_color:
+        print(corrected)
+        return
+
+    # Compute the difference between the two texts
+    words1 = re.findall(r"(\w+|\W+)", text.strip())
+    words2 = re.findall(r"(\w+|\W+)", corrected.strip())
+
+    diff = difflib.ndiff(words1, words2)
+    past, new = fmt_diff(diff)
+
+    if not clean_only:
+        print(past)
+        print()
+    print(new)
+
+
+@cli.command(name="img")
+@click.argument("prompt", type=str, default=None, required=False)
+def generate_image(prompt: str):
+    """Generate an image from the given prompt."""
+
+    prompt = get_text_input(prompt)
+
+
+VOICES = ["alloy", "echo", "fable", "onyx", "nova", "shimmer"]
+
+@cli.command(name="speak")
+@click.argument("text", type=str, default=None, required=False)
+@click.option("--voice", type=click.Choice(VOICES))
+@click.option("-o", "--output", type=click.Path(dir_okay=False, writable=True))
+@click.option("-s", "--speed", type=float, default=1.0)
+@click.option("-q", "--quiet", is_flag=True, help="Don't speak the generated audio.")
+def speak(text: str, voice: str | None, output: str | None, speed: float, quiet: bool):
+    """Speak the given text."""
+
+    text = get_text_input(text)
+
+    if voice is None:
+        voice = choice(VOICES)
+
+    if output is None:
+        # Use a temporary file.
+        output = tempfile.mktemp(suffix=".mp3", prefix="openai-voice-")
+
+    print(f"Generating audio... {voice=}, {speed=}, {output=}")
+    response = openai.audio.speech.create(
+        input=text,
+        model='tts-1-hd',
+        voice=voice,
+        response_format='mp3',
+        speed=speed,
+    )
+    response.stream_to_file(output)
+    # Play the audio.
+    if not quiet:
+        subprocess.run(["cvlc", "--play-and-exit", "--no-volume-save", "--no-loop", output])
+
+
 if __name__ == '__main__':
-    try:
-        main()
-    except (EOFError, KeyboardInterrupt):
-        pass
+    cli()
