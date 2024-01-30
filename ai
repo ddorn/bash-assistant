@@ -156,7 +156,7 @@ def callback(ctx: typer.Context):
 
     # If no command is given, run the bash assistant.
     if ctx.invoked_subcommand is None:
-        ctx.invoke(bash_scaffold, no_prompt=True)
+        bash_scaffold(no_prompt=True)
 
 
 @app.command(name="bash")
@@ -238,16 +238,22 @@ def bash_scaffold(no_prompt: bool = False):
 @app.command(name="fix")
 def fix_typos(text: Annotated[str, typer.Argument()] = None,
               show_diff: bool = True,
-              color: bool = True):
+              color: bool = True,
+              heavy: bool = False):
     """Fix typos in the given text."""
 
     text = get_text_input(text)
 
     system = """
 You are given a text and you need to fix the language (typos, grammar, ...).
-If needed, fix also the formatting.
+If needed, fix also the formatting. HEAVY
 Output directly the corrected text, without any comment.
 """.strip()
+
+    if heavy:
+        system = system.replace("HEAVY", "Please reformulate the text when needed, use better words and make it more clear when possible.")
+    else:
+        system = system.replace(" HEAVY", "")
 
     corrected = ai_query(system, text)
 
@@ -272,7 +278,7 @@ Output directly the corrected text, without any comment.
 def generate_image(prompt: Annotated[str, typer.Argument()] = None,
                    hd: bool = False,
                    vivid: bool = True,
-                   output: str = None,
+                   output: Path = None,
                    show: bool = False):
     """Generate an image from the given prompt."""
 
