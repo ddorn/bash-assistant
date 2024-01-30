@@ -1,4 +1,3 @@
-import click
 import openai
 from constants import MODEL
 
@@ -75,6 +74,8 @@ def ai_query(system: str, user: str) -> str:
 
 def get_text_input(custom: str = "") -> str:
     """Get text input from the user, fallbacks to stdin if piped, or prompts the user."""
+
+    import click
 
     if custom:
         return custom

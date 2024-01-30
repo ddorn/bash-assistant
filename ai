@@ -1,36 +1,30 @@
 #!/usr/bin/env python3
-# %%
 
 """A bash assistant that can run commands and answer questions about the system."""
 
-from contextlib import contextmanager
 import difflib
 import base64
+import enum
 import io
 import os
-from random import choice
 import re
 import subprocess
 import time
-from typing import Literal
-import click
 import tempfile
-
-import PIL.Image
-import openai
-from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
-from prompt_toolkit.history import FileHistory
-from prompt_toolkit.lexers import PygmentsLexer
-from pygments.lexers.shell import BashLexer
-from prompt_toolkit.key_binding import KeyBindings
-import prompt_toolkit as pt
+from contextlib import contextmanager
+from typing import Annotated, Literal
+from random import choice
 from pathlib import Path
+
+import typer
+import openai
 
 from constants import *
 from utils import ai_query, fmt_diff, get_text_input
 
+
 # Check that the API key is set.
-os.environ.setdefault("OPENAI_API_KEY", "")  # You can add it here too
+# os.environ.setdefault("OPENAI_API_KEY", "")  # You can add it here too
 if not (key := os.environ.get("OPENAI_API_KEY")):
     print("Please set the OPENAI_API_KEY environement variable to your API key: 'sk-...'.")
     print("Or add it in the code, two lines above this message.")
@@ -38,78 +32,10 @@ if not (key := os.environ.get("OPENAI_API_KEY")):
 
 
 
-SYSTEM_PROMPT = f"""
-You are being run in a scaffold on an archlinux machine running bash. You can access any file and program on the machine.
-When you need to run a bash command, wrap it in {BASH_START} and {BASH_END} tags.
-You will be shown the output of the command, but you cannot interact with it.
-Your answers are concise. You don't ask the user before running a command, just run it. You assume most things that the user did not specify. When you need more info, you use cat, ls or pwd.
-Don't provide explanations unless asked.
-""".strip()
-
-
-BASH_CONSOLE = pt.PromptSession(
-    message="run: ",
-    history=FileHistory(CACHE_DIR / "commands.txt"),
-    auto_suggest=AutoSuggestFromHistory(),
-    vi_mode=VI_MODE,
-    lexer=PygmentsLexer(BashLexer),
-)
-
-BINDINGS = KeyBindings()
-PROMPTS_CONSOLE = pt.PromptSession(
-    message="> ",
-    history=FileHistory(CACHE_DIR / "history.txt"),
-    auto_suggest=AutoSuggestFromHistory(),
-    vi_mode=VI_MODE,
-    key_bindings=BINDINGS,
-)
-
-
-RECORDING = None
-
-@BINDINGS.add("c-a")
-def get_audio_input(event):
-    """Get audio input from the user and add it to the prompt.
-
-    The first call starts recording, the second call stops it and adds the transcript to the prompt.
-    """
-    global RECORDING
-    msg = "🎤 Recording... press Ctrl+A to stop"
-
-    if RECORDING is None:
-        # Show that we are recording.
-        event.current_buffer.insert_text(msg)
-        # Run in parallel to avoid blocking the main thread.
-
-        proc = subprocess.Popen(
-            "ffmpeg -f alsa -i default -acodec libmp3lame -ab 128k -y temp.mp3",
-            shell=True,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-        RECORDING = proc
-        return
-
-    RECORDING.terminate()
-    RECORDING.wait()
-    RECORDING = None
-
-    transcript = openai.audio.transcriptions.create(
-        model="whisper-1",
-        file=open("temp.mp3", "rb")
-    )
-    os.remove("temp.mp3")
-
-    # Remove the recording message.
-    event.current_buffer.delete_before_cursor(len(msg))
-    # Add the transcript to the prompt.
-    event.current_buffer.insert_text(transcript.text)
-
-
-def run_suggested_command(command: str) -> tuple[str, str]:
+def run_suggested_command(command: str, bash_console) -> tuple[str, str]:
     """Run a command suggested by the assistant. Return the possibly edited command and the output."""
     try:
-        to_run = BASH_CONSOLE.prompt(default=command)
+        to_run = bash_console.prompt(default=command)
     except KeyboardInterrupt:
         return command, "Command was cancelled by the user."
 
@@ -178,24 +104,99 @@ def style(kind: Literal["system", "assistant", "response"]):
     print(STYLE_END, end="")
 
 
-@click.group(invoke_without_command=True)
-@click.pass_context
-def cli(ctx):
+RECORDING = None
+
+
+def get_audio_input(event):
+    """Get audio input from the user and add it to the prompt.
+
+    The first call starts recording, the second call stops it and adds the transcript to the prompt.
+    """
+    global RECORDING
+    msg = "🎤 Recording... press Ctrl+A to stop"
+
+    if RECORDING is None:
+        # Show that we are recording.
+        event.current_buffer.insert_text(msg)
+        # Run in parallel to avoid blocking the main thread.
+
+        proc = subprocess.Popen(
+            "ffmpeg -f alsa -i default -acodec libmp3lame -ab 128k -y temp.mp3",
+            shell=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        RECORDING = proc
+        return
+
+    RECORDING.terminate()
+    RECORDING.wait()
+    RECORDING = None
+
+    transcript = openai.audio.transcriptions.create(
+        model="whisper-1",
+        file=open("temp.mp3", "rb")
+    )
+    os.remove("temp.mp3")
+
+    # Remove the recording message.
+    event.current_buffer.delete_before_cursor(len(msg))
+    # Add the transcript to the prompt.
+    event.current_buffer.insert_text(transcript.text)
+
+
+
+# --------------------- CLI --------------------- #
+
+app = typer.Typer()
+
+@app.callback(invoke_without_command=True)
+def callback(ctx: typer.Context):
+    """Intaraction with openai's API."""
+
     # If no command is given, run the bash assistant.
     if ctx.invoked_subcommand is None:
-        ctx.invoke(bash_scaffold)
+        ctx.invoke(bash_scaffold, no_prompt=True)
 
 
-@cli.command(name="no")
-@click.pass_context
-def no(ctx):
-    """Run the bash assistant without the prompt."""
-    ctx.invoke(bash_scaffold, no_prompt=True)
+@app.command(name="bash")
+def bash_scaffold(no_prompt: bool = False):
+    """A bash assistant that can run commands and answer questions about the system."""
+
+    import prompt_toolkit as pt
+    from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
+    from prompt_toolkit.history import FileHistory
+    from prompt_toolkit.lexers import PygmentsLexer
+    from pygments.lexers.shell import BashLexer
+    from prompt_toolkit.key_binding import KeyBindings
+
+    SYSTEM_PROMPT = f"""
+    You are being run in a scaffold on an archlinux machine running bash. You can access any file and program on the machine.
+    When you need to run a bash command, wrap it in {BASH_START} and {BASH_END} tags.
+    You will be shown the output of the command, but you cannot interact with it.
+    Your answers are concise. You don't ask the user before running a command, just run it. You assume most things that the user did not specify. When you need more info, you use cat, ls or pwd.
+    Don't provide explanations unless asked.
+    """.strip()
 
 
-@cli.command(name="bash")
-@click.option("-n", "--no-prompt", is_flag=True, help="Don't use a prompt.")
-def bash_scaffold(no_prompt: bool):
+    BASH_CONSOLE = pt.PromptSession(
+        message="run: ",
+        history=FileHistory(CACHE_DIR / "commands.txt"),
+        auto_suggest=AutoSuggestFromHistory(),
+        vi_mode=VI_MODE,
+        lexer=PygmentsLexer(BashLexer),
+    )
+
+    BINDINGS = KeyBindings()
+    BINDINGS.add("c-a")(get_audio_input)
+    PROMPTS_CONSOLE = pt.PromptSession(
+        message="> ",
+        history=FileHistory(CACHE_DIR / "history.txt"),
+        auto_suggest=AutoSuggestFromHistory(),
+        vi_mode=VI_MODE,
+        key_bindings=BINDINGS,
+    )
+
 
     if no_prompt:
         messages = []
@@ -222,7 +223,7 @@ def bash_scaffold(no_prompt: bool):
             start += len(BASH_START)
             command = answer[start:end]
 
-            command, output = run_suggested_command(command)
+            command, output = run_suggested_command(command, BASH_CONSOLE)
 
             # Replace the command with the one that was actually run.
             answer = answer[:start] + command + answer[end:]
@@ -234,11 +235,10 @@ def bash_scaffold(no_prompt: bool):
         messages.append({"role": "assistant", "content": answer})
 
 
-@cli.command(name="fix")
-@click.argument("text", type=str, default=None, required=False)
-@click.option("-c", "--clean-only", is_flag=True, help="Only print the cleaned text")
-@click.option("-n", "--no-color", is_flag=True, help="Don't colorize the diff. Implies --clean-only")
-def fix_typos(text: str, clean_only: bool, no_color: bool):
+@app.command(name="fix")
+def fix_typos(text: Annotated[str, typer.Argument()] = None,
+              show_diff: bool = True,
+              color: bool = True):
     """Fix typos in the given text."""
 
     text = get_text_input(text)
@@ -251,7 +251,7 @@ Output directly the corrected text, without any comment.
 
     corrected = ai_query(system, text)
 
-    if no_color:
+    if not color:
         print(corrected)
         return
 
@@ -262,28 +262,20 @@ Output directly the corrected text, without any comment.
     diff = difflib.ndiff(words1, words2)
     past, new = fmt_diff(diff)
 
-    if not clean_only:
+    if show_diff:
         print(past)
         print()
     print(new)
 
 
-@cli.command(name="img")
-@click.argument("prompt", type=str, default=None, required=False)
-@click.option("--hd", is_flag=True, help="Generate an HD image.")
-@click.option("--vivid/--natural", default=True, help="Generate a vivid or natural image.")
-@click.option("-o", "--output", type=click.Path(dir_okay=False, writable=True))
-@click.option("-s", "--show", is_flag=True, help="Show the generated image.")
-def generate_image(prompt: str, hd: bool, vivid: bool, output: str | None, show: bool):
+@app.command(name="img")
+def generate_image(prompt: Annotated[str, typer.Argument()] = None,
+                   hd: bool = False,
+                   vivid: bool = True,
+                   output: str = None,
+                   show: bool = False):
     """Generate an image from the given prompt."""
 
-    # %%
-    prompt = "a ghost made of colorful circles"
-    hd = False
-    vivid = True
-    output = "out.png"
-    show = True
-    # %%
     prompt = get_text_input(prompt)
 
     print("Generating image...")
@@ -300,8 +292,6 @@ def generate_image(prompt: str, hd: bool, vivid: bool, output: str | None, show:
         # Use a temporary file.
         output = tempfile.mktemp(suffix=".png", prefix="openai-img-")
 
-    # %%
-
     b64 = response.data[0].b64_json
     revised_prompt = response.data[0].revised_prompt
 
@@ -312,30 +302,31 @@ def generate_image(prompt: str, hd: bool, vivid: bool, output: str | None, show:
     print(revised_prompt)
 
     # Save the image with the extension from output.
+    import PIL.Image
     img = PIL.Image.open(io.BytesIO(base64.b64decode(b64)))
     img.save(output)
 
     if show:
         subprocess.run(["imv", output])
 
-# %%
 
 
-VOICES = ["alloy", "echo", "fable", "onyx", "nova", "shimmer"]
+VOICES = ["alloy", "echo", "fable", "onyx", "nova", "shimmer", 'random']
+Voice = enum.StrEnum("Voices", {v: v for v in VOICES})
 
-@cli.command(name="speak")
-@click.argument("text", type=str, default=None, required=False)
-@click.option("--voice", type=click.Choice(VOICES))
-@click.option("-o", "--output", type=click.Path(dir_okay=False, writable=True))
-@click.option("-s", "--speed", type=float, default=1.0)
-@click.option("-q", "--quiet", is_flag=True, help="Don't speak the generated audio.")
-def speak(text: str, voice: str | None, output: str | None, speed: float, quiet: bool):
+
+@app.command(name="speak")
+def speak(text: Annotated[str, typer.Argument()] = None,
+          voice: Voice = Voice.random,
+          output: str = None,
+          speed: float = 1.0,
+          quiet: bool = False):
     """Speak the given text."""
 
     text = get_text_input(text)
 
-    if voice is None:
-        voice = choice(VOICES)
+    if voice is Voice.random:
+        voice = choice([v for v in Voice if v is not Voice.random])
 
     if output is None:
         # Use a temporary file.
@@ -356,4 +347,4 @@ def speak(text: str, voice: str | None, output: str | None, speed: float, quiet:
 
 
 if __name__ == '__main__':
-    cli()
+    app()
