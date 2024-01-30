@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
+# %%
 
 """A bash assistant that can run commands and answer questions about the system."""
 
 from contextlib import contextmanager
 import difflib
+import base64
+import io
 import os
 from random import choice
 import re
@@ -13,6 +16,7 @@ from typing import Literal
 import click
 import tempfile
 
+import PIL.Image
 import openai
 from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
 from prompt_toolkit.history import FileHistory
@@ -266,10 +270,55 @@ Output directly the corrected text, without any comment.
 
 @cli.command(name="img")
 @click.argument("prompt", type=str, default=None, required=False)
-def generate_image(prompt: str):
+@click.option("--hd", is_flag=True, help="Generate an HD image.")
+@click.option("--vivid/--natural", default=True, help="Generate a vivid or natural image.")
+@click.option("-o", "--output", type=click.Path(dir_okay=False, writable=True))
+@click.option("-s", "--show", is_flag=True, help="Show the generated image.")
+def generate_image(prompt: str, hd: bool, vivid: bool, output: str | None, show: bool):
     """Generate an image from the given prompt."""
 
+    # %%
+    prompt = "a ghost made of colorful circles"
+    hd = False
+    vivid = True
+    output = "out.png"
+    show = True
+    # %%
     prompt = get_text_input(prompt)
+
+    print("Generating image...")
+    response = openai.images.generate(
+        prompt=prompt,
+        model="dall-e-3",
+        n=1,
+        response_format="b64_json",
+        quality='hd' if hd else "standard",
+        style='vivid' if vivid else "natural",
+    )
+
+    if output is None:
+        # Use a temporary file.
+        output = tempfile.mktemp(suffix=".png", prefix="openai-img-")
+
+    # %%
+
+    b64 = response.data[0].b64_json
+    revised_prompt = response.data[0].revised_prompt
+
+    print("Initial prompt:")
+    print(prompt)
+
+    print("Revised prompt:")
+    print(revised_prompt)
+
+    # Save the image with the extension from output.
+    img = PIL.Image.open(io.BytesIO(base64.b64decode(b64)))
+    img.save(output)
+
+    if show:
+        subprocess.run(["imv", output])
+
+# %%
 
 
 VOICES = ["alloy", "echo", "fable", "onyx", "nova", "shimmer"]
