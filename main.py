@@ -183,7 +183,7 @@ def cli(ctx):
 
 
 @cli.command(name="no")
-@click.option.pass_context
+@click.pass_context
 def no(ctx):
     """Run the bash assistant without the prompt."""
     ctx.invoke(bash_scaffold, no_prompt=True)
