@@ -18,17 +18,10 @@ from pathlib import Path
 
 import typer
 import openai
+import pandas as pd
 
 from constants import *
 from utils import ai_query, fmt_diff, get_text_input
-
-
-# Check that the API key is set.
-# os.environ.setdefault("OPENAI_API_KEY", "")  # You can add it here too
-if not (key := os.environ.get("OPENAI_API_KEY")):
-    print("Please set the OPENAI_API_KEY environement variable to your API key: 'sk-...'.")
-    print("Or add it in the code, two lines above this message.")
-    exit(1)
 
 
 
@@ -152,7 +145,17 @@ app = typer.Typer()
 
 @app.callback(invoke_without_command=True)
 def callback(ctx: typer.Context):
-    """Intaraction with openai's API."""
+    """Interaction with openai's API."""
+
+
+    # Check that the API key is set.
+    # os.environ.setdefault("OPENAI_API_KEY", "")  # You can add it here too
+    if not os.environ.get("OPENAI_API_KEY"):
+        print("Please set the OPENAI_API_KEY environement variable to your API key: 'sk-...'.")
+        print("Or add it in the code, two lines above this message.")
+        exit(1)
+
+
 
     # If no command is given, run the bash assistant.
     if ctx.invoked_subcommand is None:
@@ -296,7 +299,8 @@ def generate_image(prompt: Annotated[str, typer.Argument()] = None,
 
     if output is None:
         # Use a temporary file.
-        output = tempfile.mktemp(suffix=".png", prefix="openai-img-")
+        output = Path(tempfile.mktemp(suffix=".png", prefix="openai-img-"))
+        print(f"Saving image to {str(output)}...")
 
     b64 = response.data[0].b64_json
     revised_prompt = response.data[0].revised_prompt
@@ -309,8 +313,11 @@ def generate_image(prompt: Annotated[str, typer.Argument()] = None,
 
     # Save the image with the extension from output.
     import PIL.Image
+    from PIL.ExifTags import Base
     img = PIL.Image.open(io.BytesIO(base64.b64decode(b64)))
+
     img.save(output)
+    # add_exif(output, prompt, revised_prompt)
 
     if show:
         subprocess.run(["imv", output])
@@ -350,6 +357,63 @@ def speak(text: Annotated[str, typer.Argument()] = None,
     # Play the audio.
     if not quiet:
         subprocess.run(["cvlc", "--play-and-exit", "--no-volume-save", "--no-loop", output])
+
+
+
+@app.command()
+def add_exif(img_path: Path, prompt: str, revised_prompt: str):
+    """Add the given prompts to the image's Exif metadata."""
+
+    show_exif(img_path)
+
+    import PIL.Image
+    from PIL.ExifTags import Base
+
+    img = PIL.Image.open(img_path)
+
+    # Save the prompts in the image's Exif metadata, using the fields "UserComment" and "ImageDescription".
+    img._exif[Base.UserComment] = prompt.encode()
+    img._exif[Base.ImageDescription] = revised_prompt.encode()
+    img.save(img_path, exif=img._exif)
+
+    show_exif(img_path)
+
+
+
+
+@app.command()
+def show_exif(png_path: Path):
+    """Show the exif metadata of the given png image."""
+
+    import PIL.Image
+    from rich import print
+
+    img = PIL.Image.open(png_path)
+    exif = img.getexif()
+    print(exif)
+    print(img.info)
+
+
+@app.command()
+def bas2ynab(input_file: Path, output_file: Path):
+    """Convert a bank record from the BAS to the CSV format of YNAB."""
+
+    df = pd.read_csv(input_file.open(encoding="latin1"),
+                     skiprows=11,
+                      sep=";", dtype=str)
+
+    assert list(df.columns) == ["Date", "Libellé", "Montant", "Valeur"]
+
+    out = pd.DataFrame()
+    out["Date"] = pd.to_datetime(df["Date"], format="%d.%m.%y").dt.strftime("%m/%d/%Y")
+    out["Payee"] = df["Libellé"]
+    out["Memo"] = ""
+    out["Amount"] = df["Montant"]
+
+    print(out)
+    out.to_csv(output_file, index=False)
+
+    print(f"🎉 Converted {input_file} to {output_file}")
 
 
 if __name__ == '__main__':

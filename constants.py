@@ -2,7 +2,7 @@ import os
 from pathlib import Path
 
 
-MODEL = "gpt-4-1106-preview"
+MODEL = "gpt-4-0125-preview"
 
 BASH_START = "<bash>"
 BASH_END = "</bash>"
