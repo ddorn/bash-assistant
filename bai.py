@@ -9,16 +9,19 @@ import io
 import os
 import re
 import subprocess
+import sys
 import time
 import tempfile
 from contextlib import contextmanager
 from typing import Annotated, Literal
 from random import choice
 from pathlib import Path
+import rich
 
 import typer
 import openai
 import pandas as pd
+from config import SIGNAL_SPAM_USER
 
 from constants import *
 from utils import ai_query, fmt_diff, get_text_input
@@ -360,7 +363,8 @@ def speak(text: Annotated[str, typer.Argument()] = None,
 
 
 
-@app.command()
+
+@app.command(hidden=True)
 def add_exif(img_path: Path, prompt: str, revised_prompt: str):
     """Add the given prompts to the image's Exif metadata."""
 
@@ -379,9 +383,7 @@ def add_exif(img_path: Path, prompt: str, revised_prompt: str):
     show_exif(img_path)
 
 
-
-
-@app.command()
+@app.command(hidden=True)
 def show_exif(png_path: Path):
     """Show the exif metadata of the given png image."""
 
@@ -414,6 +416,35 @@ def bas2ynab(input_file: Path, output_file: Path):
     out.to_csv(output_file, index=False)
 
     print(f"🎉 Converted {input_file} to {output_file}")
+
+
+@app.command()
+def report_spam():
+    """Report the piped email as spam using signal-spam."""
+
+    import requests
+    import config
+
+    email = sys.stdin.buffer.read()
+    assert email, "No email provided."
+
+    response = requests.post(
+        url="https://www.signal-spam.fr/api/signaler",
+        timeout=120,
+        # headers = {
+        #     'User-Agent': config["config"]["user_agent"]["agent"],
+        # }
+        auth=(config.SIGNAL_SPAM_USER, config.SIGNAL_SPAM_PASS),
+        data={
+            "message": base64.b64encode(email),
+        }
+    )
+
+    if response.status_code == 200 or response.status_code == 202:
+        print("🎉 Email reported as spam.")
+    else:
+        print(f"❌ Error: {response.status_code} {response.reason}")
+        rich.print(response.json())
 
 
 if __name__ == '__main__':
