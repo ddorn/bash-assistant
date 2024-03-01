@@ -241,6 +241,16 @@ def bash_scaffold(no_prompt: bool = False):
         messages.append({"role": "assistant", "content": answer})
 
 
+@app.command(name="translate")
+def translate(text: str, to: str = "french"):
+    """Translate the given text to the given language."""
+
+    system = f"Give a short definition in {to} of the given term without using a translation of the term, then suggest 3-6 {to} translations."
+    response = ai_query(system, text)
+    print(response)
+
+
+
 @app.command(name="fix")
 def fix_typos(text: Annotated[str, typer.Argument()] = None,
               show_diff: bool = True,
@@ -252,7 +262,7 @@ def fix_typos(text: Annotated[str, typer.Argument()] = None,
 
     system = """
 You are given a text and you need to fix the language (typos, grammar, ...).
-If needed, fix also the formatting. HEAVY
+If needed, fix also the formatting and ensure the text is gender neutral. HEAVY
 Output directly the corrected text, without any comment.
 """.strip()
 
@@ -431,9 +441,6 @@ def report_spam():
     response = requests.post(
         url="https://www.signal-spam.fr/api/signaler",
         timeout=120,
-        # headers = {
-        #     'User-Agent': config["config"]["user_agent"]["agent"],
-        # }
         auth=(config.SIGNAL_SPAM_USER, config.SIGNAL_SPAM_PASS),
         data={
             "message": base64.b64encode(email),
