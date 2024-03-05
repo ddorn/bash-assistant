@@ -2,6 +2,7 @@
 
 """A bash assistant that can run commands and answer questions about the system."""
 
+from asyncio import constants
 import difflib
 import base64
 import enum
@@ -23,8 +24,8 @@ import openai
 import pandas as pd
 from config import SIGNAL_SPAM_USER
 
-from constants import *
-from utils import ai_query, fmt_diff, get_text_input
+import constants
+from utils import ai_query, ai_stream, fmt_diff, get_text_input
 
 
 
@@ -59,20 +60,10 @@ def run_suggested_command(command: str, bash_console) -> tuple[str, str]:
     return to_run, output
 
 
-def get_response(messages: list[dict], end_after: str = BASH_END) -> str:
-    response = openai.chat.completions.create(
-        model=MODEL,
-        messages=messages,
-        stream=True,
-    )
-
+def get_response(system: str | None, messages: list[dict], end_after: str = constants.BASH_END) -> str:
     with style("assistant"):
         answer = ""
-        for chunk in response:
-            text = chunk.choices[0].delta.content
-            if text is None:
-                break
-
+        for text in ai_stream(system, messages):
             answer += text
             print(text, end="", flush=True)
             if end_after in answer:
@@ -87,17 +78,17 @@ def get_response(messages: list[dict], end_after: str = BASH_END) -> str:
 def style(kind: Literal["system", "assistant", "response"]):
     match kind:
         case "system":
-            print(STYLE_SYSTEM + "System: ", end="")
+            print(constants.STYLE_SYSTEM + "System: ", end="")
         case "assistant":
-            print(STYLE_ASSISTANT + "Assistant: ", end="")
+            print(constants.STYLE_ASSISTANT + "Assistant: ", end="")
         case "response":
-            print(STYLE_RESPONSE, end="")
+            print(constants.STYLE_RESPONSE, end="")
         case _:
             raise ValueError(f"Unknown style: {kind}")
 
     yield
 
-    print(STYLE_END, end="")
+    print(constants.STYLE_END, end="")
 
 
 RECORDING = None
@@ -144,21 +135,21 @@ def get_audio_input(event):
 
 # --------------------- CLI --------------------- #
 
+
 app = typer.Typer()
 
 @app.callback(invoke_without_command=True)
-def callback(ctx: typer.Context):
-    """Interaction with openai's API."""
+def callback(ctx: typer.Context, anthropic: bool = False):
+    """Interaction with openai's and anthropic's API."""
 
+    constants.USE_OPENAI = not anthropic
 
     # Check that the API key is set.
     # os.environ.setdefault("OPENAI_API_KEY", "")  # You can add it here too
-    if not os.environ.get("OPENAI_API_KEY"):
+    if constants.USE_OPENAI and not os.environ.get("OPENAI_API_KEY"):
         print("Please set the OPENAI_API_KEY environement variable to your API key: 'sk-...'.")
         print("Or add it in the code, two lines above this message.")
         exit(1)
-
-
 
     # If no command is given, run the bash assistant.
     if ctx.invoked_subcommand is None:
@@ -178,7 +169,7 @@ def bash_scaffold(no_prompt: bool = False):
 
     SYSTEM_PROMPT = f"""
     You are being run in a scaffold on an archlinux machine running bash. You can access any file and program on the machine.
-    When you need to run a bash command, wrap it in {BASH_START} and {BASH_END} tags.
+    When you need to run a bash command, wrap it in {constants.BASH_START} and {constants.BASH_END} tags.
     You will be shown the output of the command, but you cannot interact with it.
     Your answers are concise. You don't ask the user before running a command, just run it. You assume most things that the user did not specify. When you need more info, you use cat, ls or pwd.
     Don't provide explanations unless asked.
@@ -187,9 +178,9 @@ def bash_scaffold(no_prompt: bool = False):
 
     BASH_CONSOLE = pt.PromptSession(
         message="run: ",
-        history=FileHistory(CACHE_DIR / "commands.txt"),
+        history=FileHistory(constants.CACHE_DIR / "commands.txt"),
         auto_suggest=AutoSuggestFromHistory(),
-        vi_mode=VI_MODE,
+        vi_mode=constants.VI_MODE,
         lexer=PygmentsLexer(BashLexer),
     )
 
@@ -197,17 +188,18 @@ def bash_scaffold(no_prompt: bool = False):
     BINDINGS.add("c-a")(get_audio_input)
     PROMPTS_CONSOLE = pt.PromptSession(
         message="> ",
-        history=FileHistory(CACHE_DIR / "history.txt"),
+        history=FileHistory(constants.CACHE_DIR / "history.txt"),
         auto_suggest=AutoSuggestFromHistory(),
-        vi_mode=VI_MODE,
+        vi_mode=constants.VI_MODE,
         key_bindings=BINDINGS,
     )
 
 
+    messages = []
     if no_prompt:
-        messages = []
+        system = None
     else:
-        messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+        system = SYSTEM_PROMPT
 
         with style("system"):
             print(SYSTEM_PROMPT)
@@ -220,13 +212,13 @@ def bash_scaffold(no_prompt: bool = False):
             "content": last_command_result + question
         })
 
-        answer = get_response(messages)
+        answer = get_response(system, messages)
 
         # Ask to run the bash command
-        if (start := answer.find(BASH_START)) != -1 and \
-                (end := answer.find(BASH_END, start)) != -1:
+        if (start := answer.find(constants.BASH_START)) != -1 and \
+                (end := answer.find(constants.BASH_END, start)) != -1:
 
-            start += len(BASH_START)
+            start += len(constants.BASH_START)
             command = answer[start:end]
 
             command, output = run_suggested_command(command, BASH_CONSOLE)

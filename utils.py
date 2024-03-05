@@ -1,5 +1,9 @@
+from typing import Generator
+import anthropic
+from httpx import stream
 import openai
-from constants import MODEL
+import constants
+import config
 
 
 def fmt(text: str,
@@ -58,20 +62,6 @@ def fmt_diff(diff: list[str]) -> tuple[str, str]:
     return past, new
 
 
-def ai_query(system: str, user: str) -> str:
-    """Query the AI with the given system and user message."""
-
-    response = openai.chat.completions.create(
-        messages=[
-            dict(role="system", content=system),
-            dict(role="user", content=user),
-        ],
-        model=MODEL,
-    )
-
-    return response.choices[0].message.content
-
-
 def get_text_input(custom: str = "") -> str:
     """Get text input from the user, fallbacks to stdin if piped, or prompts the user."""
 
@@ -90,3 +80,84 @@ def get_text_input(custom: str = "") -> str:
     if text is None:
         raise click.Abort()
     return text
+
+
+anthropic_client = anthropic.Client(api_key=config.ANTHROPIC_API_KEY)
+
+def ai_chat(system: str | None, messages: list[dict[str, str]]) -> str:
+    """Chat with the AI using the given messages."""
+
+    if constants.USE_OPENAI:
+        if system:
+            messages=[
+                dict(role="system", content=system),
+                *messages,
+            ]
+        response = openai.chat.completions.create(
+            model=constants.OPENAI_MODEL,
+            max_tokens=1000,
+            temperature=0.2,
+            messages=messages,
+        )
+        return response.choices[0].message.content
+
+    else:
+        kwargs = {}
+        if system:
+            kwargs = dict(system=system)
+
+        message = anthropic_client.messages.create(
+            model=constants.ANTHROPIC_MODEL,
+            max_tokens=1000,
+            temperature=0.2,
+            messages=messages,
+            **kwargs,
+        )
+        return message.content
+
+
+def ai_stream(system: str | None, messages: list[dict[str, str]], **kwargs) -> Generator[str, None, None]:
+    """Stream with the AI using the given messages."""
+
+    new_kwargs = dict(
+        max_tokens=1000,
+        temperature=0.2,
+    )
+    kwargs = {**new_kwargs, **kwargs}
+
+    if constants.USE_OPENAI:
+        if system:
+            messages=[
+                dict(role="system", content=system),
+                *messages,
+            ]
+        response = openai.chat.completions.create(
+            model=constants.OPENAI_MODEL,
+            messages=messages,
+            stream=True,
+            **kwargs,
+        )
+
+        for chunk in response:
+            text = chunk.choices[0].delta.content
+            if text is None:
+                break
+            yield text
+
+    else:
+        if system:
+            kwargs["system"] = system
+
+        with anthropic_client.messages.stream(
+            model=constants.ANTHROPIC_MODEL,
+            messages=messages,
+            **kwargs,
+        ) as stream:
+            for text in stream.text_stream:
+                yield text
+
+
+def ai_query(system: str, user: str) -> str:
+    """Query the AI with the given system and user message."""
+
+    return ai_chat(system, [dict(role="user", content=user)])

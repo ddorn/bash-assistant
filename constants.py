@@ -2,7 +2,11 @@ import os
 from pathlib import Path
 
 
-MODEL = "gpt-4-0125-preview"
+OPENAI_MODEL = "gpt-4-0125-preview"
+ANTHROPIC_MODEL = "claude-3-opus-20240229"
+ANTHROPIC_MODEL = "claude-3-sonnet-20240229"
+ANTHROPIC_MODEL = "claude-2.1"
+USE_OPENAI = True
 
 BASH_START = "<bash>"
 BASH_END = "</bash>"
