@@ -21,7 +21,6 @@ import rich
 
 import typer
 import openai
-import pandas as pd
 from config import SIGNAL_SPAM_USER
 
 import constants
@@ -401,6 +400,9 @@ def show_exif(png_path: Path):
 @app.command()
 def bas2ynab(input_file: Path, output_file: Path):
     """Convert a bank record from the BAS to the CSV format of YNAB."""
+    import warnings
+    warnings.filterwarnings("ignore", "\nPyarrow", DeprecationWarning)
+    import pandas as pd
 
     df = pd.read_csv(input_file.open(encoding="latin1"),
                      skiprows=11,
