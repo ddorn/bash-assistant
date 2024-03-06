@@ -224,6 +224,9 @@ def bash_scaffold(no_prompt: bool = False):
 
             # Replace the command with the one that was actually run.
             answer = answer[:start] + command + answer[end:]
+            edited = typer.edit(output)
+            if edited is not None:
+                output = edited
             last_command_result = f"\n<response>{output}</response>"
         else:
             last_command_result = ""
