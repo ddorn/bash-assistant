@@ -11,18 +11,19 @@ import os
 import re
 import subprocess
 import sys
+from textwrap import dedent
 import time
 import tempfile
 from contextlib import contextmanager
 from typing import Annotated, Literal
 from random import choice
 from pathlib import Path
-import rich
 
 import typer
+import rich
 import openai
-from config import SIGNAL_SPAM_USER
 
+from config import SIGNAL_SPAM_USER
 import constants
 from utils import ai_query, ai_stream, fmt_diff, get_text_input
 
@@ -166,13 +167,13 @@ def bash_scaffold(no_prompt: bool = False):
     from pygments.lexers.shell import BashLexer
     from prompt_toolkit.key_binding import KeyBindings
 
-    SYSTEM_PROMPT = f"""
+    SYSTEM_PROMPT = dedent(f"""
     You are being run in a scaffold on an archlinux machine running bash. You can access any file and program on the machine.
-    When you need to run a bash command, wrap it in {constants.BASH_START} and {constants.BASH_END} tags.
-    You will be shown the output of the command, but you cannot interact with it.
     Your answers are concise. You don't ask the user before running a command, just run it. You assume most things that the user did not specify. When you need more info, you use cat, ls or pwd.
     Don't provide explanations unless asked.
-    """.strip()
+    When you need to run a bash command, wrap it in {constants.BASH_START} and {constants.BASH_END} tags. Don't use backticks (```) to run commands.
+    """).strip()
+    # You will be shown the output of the command, but you cannot interact with it.
 
 
     BASH_CONSOLE = pt.PromptSession(
@@ -289,8 +290,12 @@ def generate_image(prompt: Annotated[str, typer.Argument()] = None,
                    hd: bool = False,
                    vivid: bool = True,
                    output: Path = None,
+                   horizontal: bool = False,
+                   vertical: bool = False,
                    show: bool = False):
     """Generate an image from the given prompt."""
+
+    assert not (horizontal and vertical), "Cannot be both horizontal and vertical."
 
     prompt = get_text_input(prompt)
 
@@ -302,11 +307,13 @@ def generate_image(prompt: Annotated[str, typer.Argument()] = None,
         response_format="b64_json",
         quality='hd' if hd else "standard",
         style='vivid' if vivid else "natural",
+        size='1792x1024' if horizontal else '1024x1792' if vertical else '1024x1024',
     )
 
     if output is None:
         # Use a temporary file.
-        output = Path(tempfile.mktemp(suffix=".png", prefix="openai-img-"))
+        output = Path(tempfile.mktemp(suffix=".png", prefix="openai-img-", dir="~/Pictures/dalle3")).expanduser()
+        output.parent.mkdir(parents=True, exist_ok=True)
         print(f"Saving image to {str(output)}...")
 
     b64 = response.data[0].b64_json

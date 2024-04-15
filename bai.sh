@@ -1,4 +1,4 @@
 #!/bin/bash
 set -e
-cd /home/diego/ai/bash-ai
-poetry run bai/bai.py "$@"
+directory=/home/diego/ai/bash-ai
+$directory/.venv/bin/python $directory/bai/bai.py "$@"
