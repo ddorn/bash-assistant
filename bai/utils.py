@@ -1,3 +1,4 @@
+from pathlib import Path
 from typing import Generator
 import anthropic
 from httpx import stream
@@ -67,6 +68,9 @@ def get_text_input(custom: str = "") -> str:
 
     import click
 
+    if 0 < len(custom) < 200 and Path(custom).is_file():
+        return Path(custom).read_text()
+
     if custom:
         return custom
 
@@ -84,10 +88,29 @@ def get_text_input(custom: str = "") -> str:
 
 anthropic_client = anthropic.Client(api_key=config.ANTHROPIC_API_KEY)
 
-def ai_chat(system: str | None, messages: list[dict[str, str]]) -> str:
+def ai_chat(system: str | None, messages: list[dict[str, str]], model: str = None) -> str:
     """Chat with the AI using the given messages."""
 
-    if constants.USE_OPENAI:
+    if model is None:
+        if constants.USE_OPENAI:
+            model = constants.OPENAI_MODEL
+        else:
+            model = constants.ANTHROPIC_MODEL
+
+    if "claude" in model:
+        kwargs = {}
+        if system:
+            kwargs = dict(system=system)
+
+        message = anthropic_client.messages.create(
+            model=constants.ANTHROPIC_MODEL,
+            max_tokens=1000,
+            temperature=0.2,
+            messages=messages,
+            **kwargs,
+        )
+        return message.content
+    else:
         if system:
             messages=[
                 dict(role="system", content=system),
@@ -101,23 +124,16 @@ def ai_chat(system: str | None, messages: list[dict[str, str]]) -> str:
         )
         return response.choices[0].message.content
 
-    else:
-        kwargs = {}
-        if system:
-            kwargs = dict(system=system)
-
-        message = anthropic_client.messages.create(
-            model=constants.ANTHROPIC_MODEL,
-            max_tokens=1000,
-            temperature=0.2,
-            messages=messages,
-            **kwargs,
-        )
-        return message.content
 
 
-def ai_stream(system: str | None, messages: list[dict[str, str]], **kwargs) -> Generator[str, None, None]:
+def ai_stream(system: str | None, messages: list[dict[str, str]], model: str = None, **kwargs) -> Generator[str, None, None]:
     """Stream with the AI using the given messages."""
+
+    if model is None:
+        if constants.USE_OPENAI:
+            model = constants.OPENAI_MODEL
+        else:
+            model = constants.ANTHROPIC_MODEL
 
     new_kwargs = dict(
         max_tokens=1000,
@@ -125,7 +141,18 @@ def ai_stream(system: str | None, messages: list[dict[str, str]], **kwargs) -> G
     )
     kwargs = {**new_kwargs, **kwargs}
 
-    if constants.USE_OPENAI:
+    if "claude" in model:
+        if system:
+            kwargs["system"] = system
+
+        with anthropic_client.messages.stream(
+            model=constants.ANTHROPIC_MODEL,
+            messages=messages,
+            **kwargs,
+        ) as stream:
+            for text in stream.text_stream:
+                yield text
+    else:
         if system:
             messages=[
                 dict(role="system", content=system),
@@ -144,17 +171,6 @@ def ai_stream(system: str | None, messages: list[dict[str, str]], **kwargs) -> G
                 break
             yield text
 
-    else:
-        if system:
-            kwargs["system"] = system
-
-        with anthropic_client.messages.stream(
-            model=constants.ANTHROPIC_MODEL,
-            messages=messages,
-            **kwargs,
-        ) as stream:
-            for text in stream.text_stream:
-                yield text
 
 
 def ai_query(system: str, user: str) -> str:

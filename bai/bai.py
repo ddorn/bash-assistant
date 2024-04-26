@@ -314,7 +314,7 @@ def generate_image(prompt: Annotated[str, typer.Argument()] = None,
         # Use a temporary file.
         output = Path(tempfile.mktemp(suffix=".png", prefix="openai-img-", dir="~/Pictures/dalle3")).expanduser()
         output.parent.mkdir(parents=True, exist_ok=True)
-        print(f"Saving image to {str(output)}...")
+        print(f"Saving image to {str(output)}")
 
     b64 = response.data[0].b64_json
     revised_prompt = response.data[0].revised_prompt
@@ -331,7 +331,7 @@ def generate_image(prompt: Annotated[str, typer.Argument()] = None,
     img = PIL.Image.open(io.BytesIO(base64.b64decode(b64)))
 
     img.save(output)
-    # add_exif(output, prompt, revised_prompt)
+    add_exif(output, prompt, revised_prompt)
 
     if show:
         subprocess.run(["imv", output])
@@ -379,32 +379,42 @@ def speak(text: Annotated[str, typer.Argument()] = None,
 def add_exif(img_path: Path, prompt: str, revised_prompt: str):
     """Add the given prompts to the image's Exif metadata."""
 
-    show_exif(img_path)
-
     import PIL.Image
     from PIL.ExifTags import Base
+    import piexif
+    import piexif.helper
 
     img = PIL.Image.open(img_path)
-
-    # Save the prompts in the image's Exif metadata, using the fields "UserComment" and "ImageDescription".
-    img._exif[Base.UserComment] = prompt.encode()
-    img._exif[Base.ImageDescription] = revised_prompt.encode()
-    img.save(img_path, exif=img._exif)
-
-    show_exif(img_path)
+    if 'exif' in img.info:
+        exif_dict = piexif.load(img.info['exif'])
+    else:
+        exif_dict = {}
+    exif_dict['Exif'][piexif.ExifIFD.UserComment] = piexif.helper.UserComment.dump(prompt)
+    exif_dict['0th'][piexif.ImageIFD.ImageDescription] = revised_prompt
+    exif_bytes = piexif.dump(exif_dict)
+    img.save(img_path, exif=exif_bytes)
 
 
 @app.command(hidden=True)
 def show_exif(png_path: Path):
     """Show the exif metadata of the given png image."""
 
+
     import PIL.Image
     from rich import print
+    import piexif
+    import piexif.helper
 
     img = PIL.Image.open(png_path)
-    exif = img.getexif()
-    print(exif)
-    print(img.info)
+    exif_dict = piexif.load(img.info['exif'])
+
+    user_comment_raw = exif_dict['Exif'].get(piexif.ExifIFD.UserComment, b'')
+    user_comment = piexif.helper.UserComment.load(user_comment_raw)
+
+    image_description = exif_dict['0th'].get(piexif.ImageIFD.ImageDescription, b'').decode('utf-8')
+
+    print("Original prompt:", user_comment)
+    print("Revised prompt: ", image_description)
 
 
 @app.command()
@@ -456,6 +466,59 @@ def report_spam():
     else:
         print(f"❌ Error: {response.status_code} {response.reason}")
         rich.print(response.json())
+
+
+
+@app.command()
+def record():
+    """Record audio from the microphone, show an animation and optionally transcribe it.
+
+    Press Ctrl+C to stop recording.
+    """
+
+    import sounddevice as sd
+    import numpy as np
+    import time
+    import mp3
+
+
+    mini = 0.00
+    maxi = 0.001
+    def callback(indata, outdata, frames, time, status):
+        if status:
+            print(status)
+        # outdata[:] = indata
+        strength = np.mean(np.abs((indata)))
+        nonlocal mini, maxi
+        mini = min(mini, strength)
+        maxi = max(maxi, strength)
+
+        bar_length = 50
+        normalized = (strength - mini) / (maxi - mini)
+        bar = "#" * int(bar_length * normalized)
+        print(len(indata), bar)
+
+        # Write as MP3 frames to the file.
+        encoder.write(indata)
+
+    duration = 5.5  # seconds
+    # File to stream the recording to.
+    temp_file = "/tmp/record.mp3"
+    # We want to write the new frames as they come in.
+    with open(temp_file, "wb") as mp3_file:
+
+        encoder = mp3.Encoder(mp3_file)
+        encoder.set_bit_rate(64)
+        encoder.set_quality(5)
+        encoder.set_sample_rate(44100)
+        encoder.set_channels(2)
+
+        with sd.Stream(channels=2, callback=callback, latency=0.1, samplerate=44100):
+            sd.sleep(int(duration * 1000))
+
+        encoder.flush()
+
+
 
 
 if __name__ == '__main__':
