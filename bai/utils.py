@@ -63,6 +63,7 @@ def fmt_diff(diff: list[str]) -> tuple[str, str]:
     return past, new
 
 
+
 def get_text_input(custom: str = "") -> str:
     """Get text input from the user, fallbacks to stdin if piped, or prompts the user."""
 

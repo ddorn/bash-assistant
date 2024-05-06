@@ -15,6 +15,7 @@ from textwrap import dedent
 import time
 import tempfile
 from contextlib import contextmanager
+import traceback
 from typing import Annotated, Literal
 from random import choice
 from pathlib import Path
@@ -32,7 +33,7 @@ from utils import ai_query, ai_stream, fmt_diff, get_text_input
 def run_suggested_command(command: str, bash_console) -> tuple[str, str]:
     """Run a command suggested by the assistant. Return the possibly edited command and the output."""
     try:
-        to_run = bash_console.prompt(default=command)
+        to_run = bash_console.prompt(default=command.strip())
     except KeyboardInterrupt:
         return command, "Command was cancelled by the user."
 
@@ -40,15 +41,14 @@ def run_suggested_command(command: str, bash_console) -> tuple[str, str]:
     zsh_history_path = os.environ.get("HISTFILE", "~/.zsh_history")
     zsh_history_path = Path(zsh_history_path).expanduser()
     # Format the command to be added to the history.
-    to_run = to_run.replace("\n", "\\\n")
     with open(zsh_history_path, "a") as f:
-        f.write(f": {int(time.time())}:0;{to_run}\n")
-
+        f.write(f": {int(time.time())}:0;{to_run.replace("\n", "\\\n")}\n")
 
     # Run the command while streaming the output to the terminal and capturing it.
     with style("response"):
         try:
-            with subprocess.Popen(to_run, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT) as proc:
+            print(f"Running command: {to_run=!r}")
+            with subprocess.Popen(to_run.strip(), shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT) as proc:
                 output = ""
                 for line in proc.stdout:
                     line = line.decode()
@@ -310,12 +310,6 @@ def generate_image(prompt: Annotated[str, typer.Argument()] = None,
         size='1792x1024' if horizontal else '1024x1792' if vertical else '1024x1024',
     )
 
-    if output is None:
-        # Use a temporary file.
-        output = Path(tempfile.mktemp(suffix=".png", prefix="openai-img-", dir="~/Pictures/dalle3")).expanduser()
-        output.parent.mkdir(parents=True, exist_ok=True)
-        print(f"Saving image to {str(output)}")
-
     b64 = response.data[0].b64_json
     revised_prompt = response.data[0].revised_prompt
 
@@ -330,7 +324,17 @@ def generate_image(prompt: Annotated[str, typer.Argument()] = None,
     from PIL.ExifTags import Base
     img = PIL.Image.open(io.BytesIO(base64.b64decode(b64)))
 
+    if output is None:
+        date = time.strftime("%Y-%m-%d_%H-%M-%S")
+        title = re.sub(r"[^a-zA-Z0-9]+", "_", revised_prompt[:60])
+        file = f"{date}_{title}.png"
+        output = Path("~/Pictures/dalle3").expanduser() / file
+        output.parent.mkdir(parents=True, exist_ok=True)
+        print(f"Saving image to {str(output)}")
+
+
     img.save(output)
+
     add_exif(output, prompt, revised_prompt)
 
     if show:
@@ -388,7 +392,7 @@ def add_exif(img_path: Path, prompt: str, revised_prompt: str):
     if 'exif' in img.info:
         exif_dict = piexif.load(img.info['exif'])
     else:
-        exif_dict = {}
+        exif_dict = {"0th": {}, "Exif": {}}
     exif_dict['Exif'][piexif.ExifIFD.UserComment] = piexif.helper.UserComment.dump(prompt)
     exif_dict['0th'][piexif.ImageIFD.ImageDescription] = revised_prompt
     exif_bytes = piexif.dump(exif_dict)
@@ -518,6 +522,20 @@ def record():
 
         encoder.flush()
 
+
+@app.command()
+def web():
+    """Start a web server to interact with the assistant."""
+
+    command = "streamlit run bai/web.py"
+
+    # Make sure the command is run in the correct directory.
+    os.chdir(constants.ROOT)
+
+    # Find the correct python executable.
+    python = sys.executable
+
+    subprocess.run(f"{python} -m {command}", shell=True)
 
 
 

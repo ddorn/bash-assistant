@@ -25,5 +25,7 @@ STYLE_END = "\033[0m"
 
 CACHE_DIR = Path(os.environ.get("XDG_CACHE_HOME", "~/.cache")).expanduser() / "bash-assistant"
 CACHE_DIR.mkdir(parents=True, exist_ok=True)
+ROOT = Path(__file__).parent.parent
+SRC = ROOT / "bai"
 
 VI_MODE = True
