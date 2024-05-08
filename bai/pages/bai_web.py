@@ -11,7 +11,7 @@ import utils
 import constants
 
 
-DATA = Path(__file__).parent.parent.parent / 'data' / "chats"
+DATA = utils.DATA / "chats"
 DATA.mkdir(exist_ok=True, parents=True)
 
 

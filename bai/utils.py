@@ -7,6 +7,10 @@ import constants
 import config
 
 
+DATA = Path(__file__).parent.parent / 'data'
+DATA.mkdir(exist_ok=True, parents=True)
+
+
 def fmt(text: str,
         fg: int | tuple[int, int, int] = None,
         bg: int | tuple[int, int, int] = None,

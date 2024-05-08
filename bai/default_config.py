@@ -3,3 +3,5 @@ SIGNAL_SPAM_USER = "..."
 SIGNAL_SPAM_PASS = "..."
 
 ANTHROPIC_API_KEY = "..."
+
+YNAB_TOKEN = "..."

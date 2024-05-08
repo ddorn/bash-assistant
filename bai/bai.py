@@ -341,44 +341,6 @@ def generate_image(prompt: Annotated[str, typer.Argument()] = None,
         subprocess.run(["imv", output])
 
 
-
-VOICES = ["alloy", "echo", "fable", "onyx", "nova", "shimmer", 'random']
-Voice = enum.StrEnum("Voices", {v: v for v in VOICES})
-
-
-@app.command(name="speak")
-def speak(text: Annotated[str, typer.Argument()] = None,
-          voice: Voice = Voice.random,
-          output: str = None,
-          speed: float = 1.0,
-          quiet: bool = False):
-    """Speak the given text."""
-
-    text = get_text_input(text)
-
-    if voice is Voice.random:
-        voice = choice([v for v in Voice if v is not Voice.random])
-
-    if output is None:
-        # Use a temporary file.
-        output = tempfile.mktemp(suffix=".mp3", prefix="openai-voice-")
-
-    print(f"Generating audio... {voice=}, {speed=}, {output=}")
-    response = openai.audio.speech.create(
-        input=text,
-        model='tts-1-hd',
-        voice=voice,
-        response_format='mp3',
-        speed=speed,
-    )
-    response.stream_to_file(output)
-    # Play the audio.
-    if not quiet:
-        subprocess.run(["cvlc", "--play-and-exit", "--no-volume-save", "--no-loop", output])
-
-
-
-
 @app.command(hidden=True)
 def add_exif(img_path: Path, prompt: str, revised_prompt: str):
     """Add the given prompts to the image's Exif metadata."""
@@ -421,29 +383,41 @@ def show_exif(png_path: Path):
     print("Revised prompt: ", image_description)
 
 
-@app.command()
-def bas2ynab(input_file: Path, output_file: Path):
-    """Convert a bank record from the BAS to the CSV format of YNAB."""
-    import warnings
-    warnings.filterwarnings("ignore", "\nPyarrow", DeprecationWarning)
-    import pandas as pd
 
-    df = pd.read_csv(input_file.open(encoding="latin1"),
-                     skiprows=11,
-                      sep=";", dtype=str)
 
-    assert list(df.columns) == ["Date", "Libellé", "Montant", "Valeur"]
+VOICES = ["alloy", "echo", "fable", "onyx", "nova", "shimmer", 'random']
+Voice = enum.StrEnum("Voices", {v: v for v in VOICES})
 
-    out = pd.DataFrame()
-    out["Date"] = pd.to_datetime(df["Date"], format="%d.%m.%y").dt.strftime("%m/%d/%Y")
-    out["Payee"] = df["Libellé"]
-    out["Memo"] = ""
-    out["Amount"] = df["Montant"]
 
-    print(out)
-    out.to_csv(output_file, index=False)
+@app.command(name="speak")
+def speak(text: Annotated[str, typer.Argument()] = None,
+          voice: Voice = Voice.random,
+          output: str = None,
+          speed: float = 1.0,
+          quiet: bool = False):
+    """Speak the given text."""
 
-    print(f"🎉 Converted {input_file} to {output_file}")
+    text = get_text_input(text)
+
+    if voice is Voice.random:
+        voice = choice([v for v in Voice if v is not Voice.random])
+
+    if output is None:
+        # Use a temporary file.
+        output = tempfile.mktemp(suffix=".mp3", prefix="openai-voice-")
+
+    print(f"Generating audio... {voice=}, {speed=}, {output=}")
+    response = openai.audio.speech.create(
+        input=text,
+        model='tts-1-hd',
+        voice=voice,
+        response_format='mp3',
+        speed=speed,
+    )
+    response.stream_to_file(output)
+    # Play the audio.
+    if not quiet:
+        subprocess.run(["cvlc", "--play-and-exit", "--no-volume-save", "--no-loop", output])
 
 
 @app.command()
@@ -537,6 +511,11 @@ def web():
 
     subprocess.run(f"{python} -m {command}", shell=True)
 
+
+
+from ynab import app as ynab_app
+
+app.add_typer(ynab_app, name="ynab", no_args_is_help=True)
 
 
 if __name__ == '__main__':

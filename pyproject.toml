@@ -29,6 +29,9 @@ plotly = "^5.22.0"
 [tool.poetry.scripts]
 bai = 'bai.bai:app'
 
+[tool.poetry.group.dev.dependencies]
+ipykernel = "^6.29.4"
+
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
