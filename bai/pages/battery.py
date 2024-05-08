@@ -20,8 +20,13 @@ data["DateTime"] = data["DateTime"].where(times_diff < pd.Timedelta("5 min"), No
 
 # Plot last 4 days
 last_4_days = data["Date"].unique()[-4:]
-fig = px.line(data[data["Date"].isin(last_4_days)], x="DateTime", y="Battery Level", color="Date",
-              title="Battery Level vs Time")
+fig = px.line(
+    data[data["Date"].isin(last_4_days)],
+    x="DateTime",
+    y="Battery Level",
+    color="Date",
+    title="Battery Level vs Time",
+)
 st.write(fig)
 
 # A plot per day, without considering the Date
@@ -37,10 +42,14 @@ for date in data["Date"].unique():
     times_diff = times.diff()
     times = times.where(times_diff < pd.Timedelta("5 min"), None)
 
-    fig.add_trace(go.Scatter(x=times, y=df["Battery Level"],
-                             mode="lines", name=date,
-
-                             ))
+    fig.add_trace(
+        go.Scatter(
+            x=times,
+            y=df["Battery Level"],
+            mode="lines",
+            name=date,
+        )
+    )
 
 fig.update_layout(title="Battery Level vs Time per Day")
 st.plotly_chart(fig)
@@ -55,8 +64,13 @@ data["Estimated Time Remaining"] = data["Estimated Time Remaining"].dt.total_sec
 data = data[data["Battery Status"] == "Discharging"]
 
 
-fig = px.scatter(data, x="Battery Level", y="Estimated Time Remaining", color="Date",
-                 title="Estimated Time Remaining vs Battery Level")
+fig = px.scatter(
+    data,
+    x="Battery Level",
+    y="Estimated Time Remaining",
+    color="Date",
+    title="Estimated Time Remaining vs Battery Level",
+)
 # X axis from 100 to 0
 fig.update_xaxes(autorange="reversed")
 # Y axis from 0 to 4h

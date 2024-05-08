@@ -29,7 +29,6 @@ import constants
 from utils import ai_query, ai_stream, fmt_diff, get_text_input
 
 
-
 def run_suggested_command(command: str, bash_console) -> tuple[str, str]:
     """Run a command suggested by the assistant. Return the possibly edited command and the output."""
     try:
@@ -48,7 +47,9 @@ def run_suggested_command(command: str, bash_console) -> tuple[str, str]:
     with style("response"):
         try:
             print(f"Running command: {to_run=!r}")
-            with subprocess.Popen(to_run.strip(), shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT) as proc:
+            with subprocess.Popen(
+                to_run.strip(), shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT
+            ) as proc:
                 output = ""
                 for line in proc.stdout:
                     line = line.decode()
@@ -60,14 +61,16 @@ def run_suggested_command(command: str, bash_console) -> tuple[str, str]:
     return to_run, output
 
 
-def get_response(system: str | None, messages: list[dict], end_after: str = constants.BASH_END) -> str:
+def get_response(
+    system: str | None, messages: list[dict], end_after: str = constants.BASH_END
+) -> str:
     with style("assistant"):
         answer = ""
         for text in ai_stream(system, messages):
             answer += text
             print(text, end="", flush=True)
             if end_after in answer:
-                answer = answer[:answer.find(end_after)] + end_after
+                answer = answer[: answer.find(end_after)] + end_after
                 break
     print()
 
@@ -120,10 +123,7 @@ def get_audio_input(event):
     RECORDING.wait()
     RECORDING = None
 
-    transcript = openai.audio.transcriptions.create(
-        model="whisper-1",
-        file=open("temp.mp3", "rb")
-    )
+    transcript = openai.audio.transcriptions.create(model="whisper-1", file=open("temp.mp3", "rb"))
     os.remove("temp.mp3")
 
     # Remove the recording message.
@@ -132,11 +132,11 @@ def get_audio_input(event):
     event.current_buffer.insert_text(transcript.text)
 
 
-
 # --------------------- CLI --------------------- #
 
 
 app = typer.Typer()
+
 
 @app.callback(invoke_without_command=True)
 def callback(ctx: typer.Context, anthropic: bool = False):
@@ -167,14 +167,15 @@ def bash_scaffold(no_prompt: bool = False):
     from pygments.lexers.shell import BashLexer
     from prompt_toolkit.key_binding import KeyBindings
 
-    SYSTEM_PROMPT = dedent(f"""
+    SYSTEM_PROMPT = dedent(
+        f"""
     You are being run in a scaffold on an archlinux machine running bash. You can access any file and program on the machine.
     Your answers are concise. You don't ask the user before running a command, just run it. You assume most things that the user did not specify. When you need more info, you use cat, ls or pwd.
     Don't provide explanations unless asked.
     When you need to run a bash command, wrap it in {constants.BASH_START} and {constants.BASH_END} tags. Don't use backticks (```) to run commands.
-    """).strip()
+    """
+    ).strip()
     # You will be shown the output of the command, but you cannot interact with it.
-
 
     BASH_CONSOLE = pt.PromptSession(
         message="run: ",
@@ -194,7 +195,6 @@ def bash_scaffold(no_prompt: bool = False):
         key_bindings=BINDINGS,
     )
 
-
     messages = []
     if no_prompt:
         system = None
@@ -207,16 +207,14 @@ def bash_scaffold(no_prompt: bool = False):
     last_command_result = ""
     while True:
         question = PROMPTS_CONSOLE.prompt()
-        messages.append({
-            "role": "user",
-            "content": last_command_result + question
-        })
+        messages.append({"role": "user", "content": last_command_result + question})
 
         answer = get_response(system, messages)
 
         # Ask to run the bash command
-        if (start := answer.find(constants.BASH_START)) != -1 and \
-                (end := answer.find(constants.BASH_END, start)) != -1:
+        if (start := answer.find(constants.BASH_START)) != -1 and (
+            end := answer.find(constants.BASH_END, start)
+        ) != -1:
 
             start += len(constants.BASH_START)
             command = answer[start:end]
@@ -245,12 +243,13 @@ def translate(text: str, to: str = "french"):
     print(response)
 
 
-
 @app.command(name="fix")
-def fix_typos(text: Annotated[str, typer.Argument()] = None,
-              show_diff: bool = True,
-              color: bool = True,
-              heavy: bool = False):
+def fix_typos(
+    text: Annotated[str, typer.Argument()] = None,
+    show_diff: bool = True,
+    color: bool = True,
+    heavy: bool = False,
+):
     """Fix typos in the given text."""
 
     text = get_text_input(text)
@@ -262,7 +261,10 @@ Output directly the corrected text, without any comment.
 """.strip()
 
     if heavy:
-        system = system.replace("HEAVY", "Please reformulate the text when needed, use better words and make it more clear when possible.")
+        system = system.replace(
+            "HEAVY",
+            "Please reformulate the text when needed, use better words and make it more clear when possible.",
+        )
     else:
         system = system.replace(" HEAVY", "")
 
@@ -286,13 +288,15 @@ Output directly the corrected text, without any comment.
 
 
 @app.command(name="img")
-def generate_image(prompt: Annotated[str, typer.Argument()] = None,
-                   hd: bool = False,
-                   vivid: bool = True,
-                   output: Path = None,
-                   horizontal: bool = False,
-                   vertical: bool = False,
-                   show: bool = False):
+def generate_image(
+    prompt: Annotated[str, typer.Argument()] = None,
+    hd: bool = False,
+    vivid: bool = True,
+    output: Path = None,
+    horizontal: bool = False,
+    vertical: bool = False,
+    show: bool = False,
+):
     """Generate an image from the given prompt."""
 
     assert not (horizontal and vertical), "Cannot be both horizontal and vertical."
@@ -305,9 +309,9 @@ def generate_image(prompt: Annotated[str, typer.Argument()] = None,
         model="dall-e-3",
         n=1,
         response_format="b64_json",
-        quality='hd' if hd else "standard",
-        style='vivid' if vivid else "natural",
-        size='1792x1024' if horizontal else '1024x1792' if vertical else '1024x1024',
+        quality="hd" if hd else "standard",
+        style="vivid" if vivid else "natural",
+        size="1792x1024" if horizontal else "1024x1792" if vertical else "1024x1024",
     )
 
     b64 = response.data[0].b64_json
@@ -322,6 +326,7 @@ def generate_image(prompt: Annotated[str, typer.Argument()] = None,
     # Save the image with the extension from output.
     import PIL.Image
     from PIL.ExifTags import Base
+
     img = PIL.Image.open(io.BytesIO(base64.b64decode(b64)))
 
     if output is None:
@@ -331,7 +336,6 @@ def generate_image(prompt: Annotated[str, typer.Argument()] = None,
         output = Path("~/Pictures/dalle3").expanduser() / file
         output.parent.mkdir(parents=True, exist_ok=True)
         print(f"Saving image to {str(output)}")
-
 
     img.save(output)
 
@@ -351,12 +355,12 @@ def add_exif(img_path: Path, prompt: str, revised_prompt: str):
     import piexif.helper
 
     img = PIL.Image.open(img_path)
-    if 'exif' in img.info:
-        exif_dict = piexif.load(img.info['exif'])
+    if "exif" in img.info:
+        exif_dict = piexif.load(img.info["exif"])
     else:
         exif_dict = {"0th": {}, "Exif": {}}
-    exif_dict['Exif'][piexif.ExifIFD.UserComment] = piexif.helper.UserComment.dump(prompt)
-    exif_dict['0th'][piexif.ImageIFD.ImageDescription] = revised_prompt
+    exif_dict["Exif"][piexif.ExifIFD.UserComment] = piexif.helper.UserComment.dump(prompt)
+    exif_dict["0th"][piexif.ImageIFD.ImageDescription] = revised_prompt
     exif_bytes = piexif.dump(exif_dict)
     img.save(img_path, exif=exif_bytes)
 
@@ -365,36 +369,35 @@ def add_exif(img_path: Path, prompt: str, revised_prompt: str):
 def show_exif(png_path: Path):
     """Show the exif metadata of the given png image."""
 
-
     import PIL.Image
     from rich import print
     import piexif
     import piexif.helper
 
     img = PIL.Image.open(png_path)
-    exif_dict = piexif.load(img.info['exif'])
+    exif_dict = piexif.load(img.info["exif"])
 
-    user_comment_raw = exif_dict['Exif'].get(piexif.ExifIFD.UserComment, b'')
+    user_comment_raw = exif_dict["Exif"].get(piexif.ExifIFD.UserComment, b"")
     user_comment = piexif.helper.UserComment.load(user_comment_raw)
 
-    image_description = exif_dict['0th'].get(piexif.ImageIFD.ImageDescription, b'').decode('utf-8')
+    image_description = exif_dict["0th"].get(piexif.ImageIFD.ImageDescription, b"").decode("utf-8")
 
     print("Original prompt:", user_comment)
     print("Revised prompt: ", image_description)
 
 
-
-
-VOICES = ["alloy", "echo", "fable", "onyx", "nova", "shimmer", 'random']
+VOICES = ["alloy", "echo", "fable", "onyx", "nova", "shimmer", "random"]
 Voice = enum.StrEnum("Voices", {v: v for v in VOICES})
 
 
 @app.command(name="speak")
-def speak(text: Annotated[str, typer.Argument()] = None,
-          voice: Voice = Voice.random,
-          output: str = None,
-          speed: float = 1.0,
-          quiet: bool = False):
+def speak(
+    text: Annotated[str, typer.Argument()] = None,
+    voice: Voice = Voice.random,
+    output: str = None,
+    speed: float = 1.0,
+    quiet: bool = False,
+):
     """Speak the given text."""
 
     text = get_text_input(text)
@@ -409,9 +412,9 @@ def speak(text: Annotated[str, typer.Argument()] = None,
     print(f"Generating audio... {voice=}, {speed=}, {output=}")
     response = openai.audio.speech.create(
         input=text,
-        model='tts-1-hd',
+        model="tts-1-hd",
         voice=voice,
-        response_format='mp3',
+        response_format="mp3",
         speed=speed,
     )
     response.stream_to_file(output)
@@ -436,7 +439,7 @@ def report_spam():
         auth=(config.SIGNAL_SPAM_USER, config.SIGNAL_SPAM_PASS),
         data={
             "message": base64.b64encode(email),
-        }
+        },
     )
 
     if response.status_code == 200 or response.status_code == 202:
@@ -444,7 +447,6 @@ def report_spam():
     else:
         print(f"❌ Error: {response.status_code} {response.reason}")
         rich.print(response.json())
-
 
 
 @app.command()
@@ -459,9 +461,9 @@ def record():
     import time
     import mp3
 
-
     mini = 0.00
     maxi = 0.001
+
     def callback(indata, outdata, frames, time, status):
         if status:
             print(status)
@@ -512,11 +514,10 @@ def web():
     subprocess.run(f"{python} -m {command}", shell=True)
 
 
-
 from ynab import app as ynab_app
 
 app.add_typer(ynab_app, name="ynab", no_args_is_help=True)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     app()

@@ -9,7 +9,6 @@ text = st.text_area("Text to fix")
 heavy = st.checkbox("Also reformulate")
 
 
-
 def fix(text, heavy):
     system = """
 You are given a text and you need to fix the language (typos, grammar, ...).
@@ -18,7 +17,10 @@ Output directly the corrected text, without any comment.
 """.strip()
 
     if heavy:
-        system = system.replace("HEAVY", "Please reformulate the text when needed, use better words and make it more clear when possible.")
+        system = system.replace(
+            "HEAVY",
+            "Please reformulate the text when needed, use better words and make it more clear when possible.",
+        )
     else:
         system = system.replace(" HEAVY", "")
 

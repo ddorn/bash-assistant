@@ -7,14 +7,16 @@ import constants
 import config
 
 
-DATA = Path(__file__).parent.parent / 'data'
+DATA = Path(__file__).parent.parent / "data"
 DATA.mkdir(exist_ok=True, parents=True)
 
 
-def fmt(text: str,
-        fg: int | tuple[int, int, int] = None,
-        bg: int | tuple[int, int, int] = None,
-        underline: bool = False) -> str:
+def fmt(
+    text: str,
+    fg: int | tuple[int, int, int] = None,
+    bg: int | tuple[int, int, int] = None,
+    underline: bool = False,
+) -> str:
     """Format the text with the given colors."""
 
     mods = ""
@@ -27,8 +29,6 @@ def fmt(text: str,
             mods += f"\033[38;5;{fg}m"
         else:
             mods += f"\033[38;2;{fg[0]};{fg[1]};{fg[2]}m"
-
-
 
     if bg is not None:
         if isinstance(bg, int):
@@ -46,7 +46,8 @@ def fmt_diff(diff: list[str]) -> tuple[str, str]:
     """Format the output of difflib.ndiff.
 
     Returns:
-        tuple[str, str]: The two strings (past, new) with the differences highlighted in ANSI colors."""
+        tuple[str, str]: The two strings (past, new) with the differences highlighted in ANSI colors.
+    """
 
     past = ""
     new = ""
@@ -65,7 +66,6 @@ def fmt_diff(diff: list[str]) -> tuple[str, str]:
                 pass
 
     return past, new
-
 
 
 def get_text_input(custom: str = "") -> str:
@@ -93,6 +93,7 @@ def get_text_input(custom: str = "") -> str:
 
 anthropic_client = anthropic.Client(api_key=config.ANTHROPIC_API_KEY)
 
+
 def ai_chat(system: str | None, messages: list[dict[str, str]], model: str = None) -> str:
     """Chat with the AI using the given messages."""
 
@@ -117,7 +118,7 @@ def ai_chat(system: str | None, messages: list[dict[str, str]], model: str = Non
         return message.content
     else:
         if system:
-            messages=[
+            messages = [
                 dict(role="system", content=system),
                 *messages,
             ]
@@ -130,8 +131,9 @@ def ai_chat(system: str | None, messages: list[dict[str, str]], model: str = Non
         return response.choices[0].message.content
 
 
-
-def ai_stream(system: str | None, messages: list[dict[str, str]], model: str = None, **kwargs) -> Generator[str, None, None]:
+def ai_stream(
+    system: str | None, messages: list[dict[str, str]], model: str = None, **kwargs
+) -> Generator[str, None, None]:
     """Stream with the AI using the given messages."""
 
     if model is None:
@@ -159,7 +161,7 @@ def ai_stream(system: str | None, messages: list[dict[str, str]], model: str = N
                 yield text
     else:
         if system:
-            messages=[
+            messages = [
                 dict(role="system", content=system),
                 *messages,
             ]
@@ -175,7 +177,6 @@ def ai_stream(system: str | None, messages: list[dict[str, str]], model: str = N
             if text is None:
                 break
             yield text
-
 
 
 def ai_query(system: str, user: str) -> str:

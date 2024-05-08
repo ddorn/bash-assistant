@@ -44,25 +44,27 @@ class Chat:
 
     def save(self):
         data = self.__dict__.copy()
-        del data['path']
+        del data["path"]
         self.path.write_text(json.dumps(data))
 
     def edit(self, i: int, new_content: str):
-        self.messages[i]['content'] = new_content
+        self.messages[i]["content"] = new_content
         self.save()
 
     def delete_msg(self, i: int):
         self.messages.pop(i)
         self.save()
 
-    def preprocess_messages(self, up_to: int | None = None) -> tuple[str | None, list[dict[str, str]]]:
+    def preprocess_messages(
+        self, up_to: int | None = None
+    ) -> tuple[str | None, list[dict[str, str]]]:
         system = None
         messages = []
         for message in self.messages[:up_to]:
-            if message['role'] == "system":
+            if message["role"] == "system":
                 assert system is None
-                system = message['content']
-            elif message['content']:
+                system = message["content"]
+            elif message["content"]:
                 messages.append(message)
         return system, messages
 
@@ -71,7 +73,11 @@ class Chat:
         if model is None:
             content = "new message!"
         else:
-            content = st.write_stream(utils.ai_stream(*self.preprocess_messages(up_to=regenerate_idx), **GENERATION_ARGS.__dict__))
+            content = st.write_stream(
+                utils.ai_stream(
+                    *self.preprocess_messages(up_to=regenerate_idx), **GENERATION_ARGS.__dict__
+                )
+            )
 
         if regenerate_idx is not None:
             return self.edit(regenerate_idx, content)
@@ -79,7 +85,6 @@ class Chat:
         self.messages.append(dict(role="assistant", content=content))
         self.messages.append(dict(role="user", content=""))
         self.save()
-
 
     def show(self, edit_mode: bool = False):
 
@@ -97,9 +102,9 @@ class Chat:
             self.messages.append(dict(role="user", content=""))
 
         for i, message in enumerate(self.messages):
-            avatar = {"system": "⚙", "user": "👤", "assistant": "🤖"}[message['role']]
-            role = message['role']
-            name = avatar + " " + message['role'].capitalize()
+            avatar = {"system": "⚙", "user": "👤", "assistant": "🤖"}[message["role"]]
+            role = message["role"]
+            name = avatar + " " + message["role"].capitalize()
             is_user = role == "user"
             is_system = role == "system"
 
@@ -109,19 +114,18 @@ class Chat:
                     self.delete_msg(i)
                     st.rerun()
 
-                regenerate = (role == "assistant" and st.button("♻", key=f"redo-{i}"))
-
+                regenerate = role == "assistant" and st.button("♻", key=f"redo-{i}")
 
             with cols[is_user]:
                 if regenerate:
                     self.generate(regenerate_idx=i)
                 elif edit_mode or is_user or is_system:
-                    height = 15 * max(4, approx_text_height(message['content']))
-                    new = st.text_area(name, message['content'], key=f"content-{i}", height=height)
-                    if new != message['content']:
+                    height = 15 * max(4, approx_text_height(message["content"]))
+                    new = st.text_area(name, message["content"], key=f"content-{i}", height=height)
+                    if new != message["content"]:
                         self.edit(i, new)
                 else:
-                    st.markdown(f"**{name}**  \n" + message['content'])
+                    st.markdown(f"**{name}**  \n" + message["content"])
 
         # We want the message before the button
         generated_msg = st.empty()
@@ -131,7 +135,6 @@ class Chat:
             with generated_msg:
                 self.generate()
                 st.rerun()
-
 
 
 def new_chat():
@@ -158,12 +161,12 @@ def main():
         # The next line DOESNT WORK. It makes the app need more reloads every time a button is clicked.
         # selected_chat = st.radio("Select chat", all_chats, format_func=lambda x: x.name)
         # To work around this, we selected the chat by index
-        idx = st.radio("Select chat", range(len(all_chats)), format_func=lambda x: all_chats[x].name)
+        idx = st.radio(
+            "Select chat", range(len(all_chats)), format_func=lambda x: all_chats[x].name
+        )
         selected_chat: Chat = all_chats[idx]
 
     selected_chat.show(edit_mode=edit_mode)
-
-
 
 
 if __name__ == "__main__":

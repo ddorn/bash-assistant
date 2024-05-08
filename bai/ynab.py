@@ -19,21 +19,21 @@ app = Typer()
 def is_same(sesterce_row, ynab_transaction):
     # Check less than 3 days appart
     date = sesterce_row["Date"]
-    t_date = datetime.strptime(ynab_transaction['date'], "%Y-%m-%d")
+    t_date = datetime.strptime(ynab_transaction["date"], "%Y-%m-%d")
     if abs((t_date - date).days) > 3:
         return False
 
     # Check same amount. YNAB is in milliunits
     amount = sesterce_row["Paid by Diego"]
-    if -amount * 1000 != ynab_transaction['amount']:
+    if -amount * 1000 != ynab_transaction["amount"]:
         return False
 
     # If it's a zero transaction, if the subtransactions are the same
     if amount == 0:
-        if len(ynab_transaction['subtransactions']) != 2:
+        if len(ynab_transaction["subtransactions"]) != 2:
             return False
-        for sub in ynab_transaction['subtransactions']:
-            if abs(sub['amount']) != sesterce_row["Paid for Diego"] * 1000:
+        for sub in ynab_transaction["subtransactions"]:
+            if abs(sub["amount"]) != sesterce_row["Paid for Diego"] * 1000:
                 return False
 
     return True
@@ -47,68 +47,78 @@ def match_sesterce_ynab(sesterce_row, ynab_transactions):
 
 
 def create_split_0_transaction(amount: float, payee_name: str, date: datetime, no_confirm: bool):
-        payload = dict(
-            account_id="d6585d76-0931-4930-bbc2-2e3a4c97393b",  # "Not my transaction" category
-            date=date.strftime("%Y-%m-%d"),
-            amount=0,
-            payee_name=payee_name,
-            subtransactions=[
-                dict(amount=int(-amount * 1000), category_id="7db9d4cf-5c1b-4eba-8f44-6676689287e2"),  # Unknow category
-                dict(amount=int(amount * 1000), category_id="c586144c-2f67-45b2-a47f-571cabae1d16"),  # Coloc tricount category
-            ]
-        )
+    payload = dict(
+        account_id="d6585d76-0931-4930-bbc2-2e3a4c97393b",  # "Not my transaction" category
+        date=date.strftime("%Y-%m-%d"),
+        amount=0,
+        payee_name=payee_name,
+        subtransactions=[
+            dict(
+                amount=int(-amount * 1000), category_id="7db9d4cf-5c1b-4eba-8f44-6676689287e2"
+            ),  # Unknow category
+            dict(
+                amount=int(amount * 1000), category_id="c586144c-2f67-45b2-a47f-571cabae1d16"
+            ),  # Coloc tricount category
+        ],
+    )
 
-        if not no_confirm:
-            print(f"🤔 Create split transaction?")
-            print(f"    Sesterce: {payee_name} - {date} - ±{amount}")
-            if input("Continue? [y/N]: ") != "y":
-                print("🚫 Skipped")
-                return
+    if not no_confirm:
+        print(f"🤔 Create split transaction?")
+        print(f"    Sesterce: {payee_name} - {date} - ±{amount}")
+        if input("Continue? [y/N]: ") != "y":
+            print("🚫 Skipped")
+            return
 
-        response = requests.post(BASE, headers=HEADERS, json={"transaction": payload})
+    response = requests.post(BASE, headers=HEADERS, json={"transaction": payload})
 
-        if response.status_code != 201:
-            print(f"❌ Error while creating transaction for {payee_name}: {response.status_code}")
-            pprint(response.json())
-        else:
-            print(f"🌟 Created split 0 transaction for {payee_name}")
+    if response.status_code != 201:
+        print(f"❌ Error while creating transaction for {payee_name}: {response.status_code}")
+        pprint(response.json())
+    else:
+        print(f"🌟 Created split 0 transaction for {payee_name}")
 
 
 def add_split_to_my_transaction(transaction, row, no_confirm):
-        paid_for_me = int(row["Paid for Diego"] * 1000)
-        paid_by_me = int(row["Paid by Diego"] * 1000)
-        # Avoid rounding problems, where parts don't sum up in the sesterce export
-        paid_for_coloc = paid_by_me - paid_for_me
-        payload = dict(
-            id=transaction['id'],
-            memo=f"Sesterce: {row['Title']}",
-            subtransactions=[
-                dict(amount=-paid_for_me, category_id=transaction['category_id']),
-                dict(amount=-paid_for_coloc, category_id="c586144c-2f67-45b2-a47f-571cabae1d16"),  # Coloc tricount category
-            ]
+    paid_for_me = int(row["Paid for Diego"] * 1000)
+    paid_by_me = int(row["Paid by Diego"] * 1000)
+    # Avoid rounding problems, where parts don't sum up in the sesterce export
+    paid_for_coloc = paid_by_me - paid_for_me
+    payload = dict(
+        id=transaction["id"],
+        memo=f"Sesterce: {row['Title']}",
+        subtransactions=[
+            dict(amount=-paid_for_me, category_id=transaction["category_id"]),
+            dict(
+                amount=-paid_for_coloc, category_id="c586144c-2f67-45b2-a47f-571cabae1d16"
+            ),  # Coloc tricount category
+        ],
+    )
+
+    if not no_confirm:
+        print(f"🤔 Update transaction splits?")
+        print(f"    Sesterce: {row['Title']} - {row['Date']}")
+        for name, amount in row.items():
+            if name.startswith("Paid for"):
+                print(f"     {name[9:]: >12}: {amount}€")
+        print(
+            f"    YNAB: {transaction['payee_name']} - {transaction['date']} ({transaction['amount'] / 1000}€)"
         )
+        category = transaction["category_name"] or "[Uncategorized]"
+        print(f"      New split: {paid_for_me / 1000}€ {category}")
+        print(f"      New split: {paid_for_coloc / 1000}€ Coloc Split")
+        if input("Continue? [y/N]: ") != "y":
+            print("🚫 Skipped")
+            return
 
-        if not no_confirm:
-            print(f"🤔 Update transaction splits?")
-            print(f"    Sesterce: {row['Title']} - {row['Date']}")
-            for name, amount in row.items():
-                if name.startswith("Paid for"):
-                    print(f"     {name[9:]: >12}: {amount}€")
-            print(f"    YNAB: {transaction['payee_name']} - {transaction['date']} ({transaction['amount'] / 1000}€)")
-            category = transaction['category_name'] or "[Uncategorized]"
-            print(f"      New split: {paid_for_me / 1000}€ {category}")
-            print(f"      New split: {paid_for_coloc / 1000}€ Coloc Split")
-            if input("Continue? [y/N]: ") != "y":
-                print("🚫 Skipped")
-                return
+    response = requests.put(
+        f"{BASE}/{transaction['id']}", headers=HEADERS, json={"transaction": payload}
+    )
 
-        response = requests.put(f"{BASE}/{transaction['id']}", headers=HEADERS, json={"transaction": payload})
-
-        if response.status_code != 200:
-            print(f"❌ Error while updating transaction for {row['Title']}: {response.status_code}")
-            pprint(response.json())
-        else:
-            print(f"🌟 Updated transaction for {row['Title']} with split")
+    if response.status_code != 200:
+        print(f"❌ Error while updating transaction for {row['Title']}: {response.status_code}")
+        pprint(response.json())
+    else:
+        print(f"🌟 Updated transaction for {row['Title']} with split")
 
 
 @app.command()
@@ -139,10 +149,10 @@ def sesterce(input_file: Path, no_confirm: bool = False, since: str = "last"):
 
     # Retreive the all transactions from YNAB
     response = requests.get(BASE, headers=HEADERS)
-    transactions = response.json()['data']['transactions']
+    transactions = response.json()["data"]["transactions"]
 
     # Filter out old transactions
-    transactions = [t for t in transactions if datetime.strptime(t['date'], "%Y-%m-%d") >= since]
+    transactions = [t for t in transactions if datetime.strptime(t["date"], "%Y-%m-%d") >= since]
 
     # %% Load the transactions from the CSV file
 
@@ -160,7 +170,7 @@ def sesterce(input_file: Path, no_confirm: bool = False, since: str = "last"):
     df = df[df["Date"] >= since]
     df
 
-    #%%
+    # %%
 
     # For each transaction
     # 0. Try to find the transaction in YNAB
@@ -168,19 +178,19 @@ def sesterce(input_file: Path, no_confirm: bool = False, since: str = "last"):
     # 2. If found and already split, do nothing
     # 3. If found and not split, create two splits
 
-
     for i, row in df.iterrows():
         match = match_sesterce_ynab(row, transactions)
 
-        if match and match['subtransactions']:
+        if match and match["subtransactions"]:
             print(f"👌 Transaction for {row['Title']} already present and split")
         elif match:
             add_split_to_my_transaction(match, row, no_confirm)
         elif row["Paid by Diego"] == 0:
             create_split_0_transaction(row["Paid for Diego"], row["Title"], row["Date"], no_confirm)
         else:
-            print(f"🙈 Did not create entry for my transaction on {row["Title"]}, even if missing. [not implemented]")
-
+            print(
+                f"🙈 Did not create entry for my transaction on {row["Title"]}, even if missing. [not implemented]"
+            )
 
     # Save the last import date
     since_file.write_text(datetime.now().strftime("%Y-%m-%d"))
@@ -194,17 +204,20 @@ def ynab_ids():
 
     headers = {"Authorization": f"Bearer {config.YNAB_TOKEN}"}
     # Categories
-    response = requests.get("https://api.youneedabudget.com/v1/budgets/last-used/categories", headers=headers)
+    response = requests.get(
+        "https://api.youneedabudget.com/v1/budgets/last-used/categories", headers=headers
+    )
 
-
-    for group in response.json()['data']['category_groups']:
+    for group in response.json()["data"]["category_groups"]:
         print(f"📦 {group['name']}")
-        for category in group['categories']:
+        for category in group["categories"]:
             print(f"  - {category['name']} ({category['id']})")
 
     # Accounts
-    response = requests.get("https://api.youneedabudget.com/v1/budgets/last-used/accounts", headers=headers)
-    for account in response.json()['data']['accounts']:
+    response = requests.get(
+        "https://api.youneedabudget.com/v1/budgets/last-used/accounts", headers=headers
+    )
+    for account in response.json()["data"]["accounts"]:
         print(f"🏦 {account['name']} ({account['id']})")
 
 
@@ -212,12 +225,11 @@ def ynab_ids():
 def process_bas(input_file: Path, output_file: Path):
     """Convert a bank record from the BAS to the CSV format of YNAB."""
     import warnings
+
     warnings.filterwarnings("ignore", "\nPyarrow", DeprecationWarning)
     import pandas as pd
 
-    df = pd.read_csv(input_file.open(encoding="latin1"),
-                     skiprows=11,
-                      sep=";", dtype=str)
+    df = pd.read_csv(input_file.open(encoding="latin1"), skiprows=11, sep=";", dtype=str)
 
     assert list(df.columns) == ["Date", "Libellé", "Montant", "Valeur"]
 

@@ -3,10 +3,11 @@ import streamlit as st
 
 
 def unneeded_packages():
-    unneeded = os.popen('pacman -Qdtq').read().strip().split('\n')
+    unneeded = os.popen("pacman -Qdtq").read().strip().split("\n")
     if unneeded:
         unneeded = "\n- ".join(unneeded)
-        st.write(f"""
+        st.write(
+            f"""
 Some packages were installed as dependencies but are no longer needed (`pacman -Qdtq`):
 - {unneeded}
 
@@ -14,10 +15,8 @@ You can remove them with
 ```bash
 sudo pacman -Rns $(pacman -Qdtq)
 ```
-""")
-
-
-
+"""
+        )
 
 
 def dashboard():
