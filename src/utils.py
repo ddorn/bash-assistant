@@ -190,4 +190,4 @@ def notify(title: str, message: str, urgency: str = "normal"):
 
     import subprocess
 
-    subprocess.run(["notify-send", title, message, f"--urgency={urgency}"])
+    subprocess.run(["notify-send", title, message, f"--urgency={urgency}"], check=True)

@@ -124,7 +124,7 @@ def go_to_sleep(
     notify = time_to_seconds(notify)
     shutdown = time_to_seconds(shutdown)
     end = time_to_seconds(end)
-    now = time() % 86400
+    now = datetime.now().hour * 3600 + datetime.now().minute * 60
 
     if not is_in_order(notify, shutdown, end):
         raise ValueError("Times should be in clockwise order.")
