@@ -73,7 +73,7 @@ class Dcron:
         CALLS_FILE.write_text(json.dumps(self.calls))
 
         if errors:
-            raise ExceptionGroup(errors)
+            raise ExceptionGroup("Failed to run one or more dcron", errors)
 
 
 # %%
@@ -94,7 +94,8 @@ def log_battery():
     info = subprocess.check_output(["acpi", "-b"], text=True).strip()
     level = re.search(r"(\d+)%", info).group(1)
     status = re.search(r"Charging|Discharging", info).group(0)
-    estimated = re.search(r"\d+:\d+:\d+", info).group(0)
+    estimated = re.search(r"\d+:\d+:\d+", info)
+    estimated = estimated.group(0) if estimated else ""
 
     uptime_since = subprocess.check_output(["uptime", "-s"], text=True).strip()
     uptime = datetime.now() - datetime.strptime(uptime_since, "%Y-%m-%d %H:%M:%S")

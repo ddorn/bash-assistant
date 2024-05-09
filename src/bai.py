@@ -513,6 +513,131 @@ def web():
     subprocess.run(f"{python} -m {command}", shell=True)
 
 
+@app.command()
+def timer(duration: str):
+    """Start a timer for the given duration, e.g. '5m' or '1h 10s'."""
+
+    # Parse the duration.
+    total = 0
+    multiplier = {"s": 1, "m": 60, "h": 3600, "d": 86400}
+    for part in duration.split():
+        try:
+            total += int(part[:-1]) * multiplier[part[-1]]
+        except (ValueError, KeyError):
+            print(f"Invalid duration part: {part}")
+            quit(1)
+
+    # Show a visual timer with Textual.
+    from textual.app import App
+    from textual.widgets import Label, ProgressBar, Footer, Static
+    from textual.reactive import reactive
+    import pyfiglet
+
+    fonts = [
+        # Largest to smallest
+        "univers",
+        "colossal",
+        "alphabet",
+        "4max",
+        "3x5",
+    ]
+    fonts = [pyfiglet.Figlet(font=font) for font in fonts]
+
+    def fmt_duration(sec: int) -> str:
+        if sec < 0:
+            sign = "-"
+            sec = -sec
+        else:
+            sign = ""
+
+        minutes, sec = divmod(sec, 60)
+        hours, minutes = divmod(minutes, 60)
+
+        if hours:
+            return f"{sign}{hours:02.0f}:{minutes:02.0f}:{sec:02.0f}"
+        else:
+            return f"{sign}{minutes:02.0f}:{sec:02.0f}"
+
+    class TimeDisplay(Static):
+        start_time = reactive(time.time)
+        time_shown = reactive(0)
+
+        def __init__(self, duration: float):
+            self.duration = duration
+            self.was_rung = False
+            super().__init__()
+
+        def on_mount(self):
+            self.set_interval(1 / 24, self.update_time_shown)
+            # self.styles.text_align = "center"  # No. it strips the text before centering
+            self.styles.content_align_vertical = "middle"
+            self.styles.height = "100h"
+
+        def update_time_shown(self):
+            time_since_start = time.time() - self.start_time
+            sec = self.duration - time_since_start
+            self.time_shown = int(sec)
+
+        def watch_time_shown(self):
+            if self.time_shown < 0 and not self.was_rung:
+                self.was_rung = True
+                subprocess.Popen(["paplay ~/Documents/time_over.ogg"], shell=True)
+                return
+            elif self.time_shown > 0:
+                self.was_rung = False
+
+            sec_str = fmt_duration(self.time_shown)
+            # What space do we have?
+            width = self.size.width
+            height = self.size.height - 2
+
+            # Find the largest font that fits.
+            bw, bh = len(sec_str), 1
+            best = [sec_str]
+            log = ""
+            for font in fonts:
+                new = font.renderText(sec_str)
+                lines = new.split("\n")
+                h = len(lines)
+                w = max(len(line) for line in lines)
+                log += f"{w=} {h=} {font.font}\n"
+                if bw <= w <= width and h <= height:
+                    best = lines
+                    bw, bh = w, h
+
+            first_line = "\n".join(line.center(width) for line in best)
+            time_since_start = time.time() - self.start_time
+            second_line = f"Total: {fmt_duration(time_since_start)}".center(width)
+
+            self.update(first_line + "\n\n" + second_line)
+
+    class TimerApp(App):
+        BINDINGS = [
+            ("j", "sub_minute", "Sub 1 min"),
+            ("k", "add_minute", "Add 1 min"),
+        ]
+
+        def __init__(self, duration: int):
+            self.initial_duration = duration
+            super().__init__()
+
+        def compose(self):
+            yield TimeDisplay(self.initial_duration)
+            yield Footer()
+
+        def add_time(self, amount: int):
+            time_display = self.query_one(TimeDisplay)
+            time_display.duration += amount
+
+        def action_add_minute(self):
+            self.add_time(60)
+
+        def action_sub_minute(self):
+            self.add_time(-60)
+
+    TimerApp(total).run()
+
+
 from ynab import app as ynab_app
 from dcron import dcron
 
