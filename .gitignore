@@ -2,4 +2,4 @@ data/
 *.txt
 __pycache__/
 config.py
-bai/config.py
+src/config.py

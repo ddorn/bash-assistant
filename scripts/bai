@@ -1,0 +1,7 @@
+#!/bin/bash
+set -e
+# Get the directory of the script
+script_directory=$(dirname $(realpath $0))
+directory=$(dirname $script_directory)
+
+$directory/.venv/bin/python $directory/src/bai.py "$@"
