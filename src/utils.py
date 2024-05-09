@@ -183,3 +183,11 @@ def ai_query(system: str, user: str) -> str:
     """Query the AI with the given system and user message."""
 
     return ai_chat(system, [dict(role="user", content=user)])
+
+
+def notify(title: str, message: str, urgency: str = "normal"):
+    """Send a desktop notification."""
+
+    import subprocess
+
+    subprocess.run(["notify-send", title, message, f"--urgency={urgency}"])

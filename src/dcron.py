@@ -2,6 +2,7 @@ from datetime import datetime
 from pathlib import Path
 import re
 import subprocess
+from textwrap import dedent
 from time import time
 import json
 import traceback
@@ -104,13 +105,55 @@ def log_battery():
         f.write(f"{now},{level},{status},{estimated},{uptime}\n")
 
 
+@every(minutes=7)
+def go_to_sleep(
+    notify: str = "20:00",
+    shutdown: str = "22:00",
+    end: str = "07:00",
+    snooze_file: Path = Path("/tmp/no_sleep_today"),
+    good_night_music: Path = utils.DATA / "goodnight.mp3",
+):
+    def is_in_order(a, b, c):
+        """Check if a, b, c are 3 times in clockwise order on the clock."""
+        return a < b < c or c < a < b or b < c < a
+
+    def time_to_seconds(t):
+        h, m = map(int, t.split(":"))
+        return h * 3600 + m * 60
+
+    notify = time_to_seconds(notify)
+    shutdown = time_to_seconds(shutdown)
+    end = time_to_seconds(end)
+    now = time() % 86400
+
+    if not is_in_order(notify, shutdown, end):
+        raise ValueError("Times should be in clockwise order.")
+
+    if is_in_order(notify, now, shutdown):
+        minutes = (shutdown - now) // 60
+        utils.notify("Go to sleep!", f"Shutting down in {minutes} minutes.")
+    elif is_in_order(shutdown, now, end):
+        if snooze_file.exists():
+            snooze_file.unlink()
+            utils.notify("You do you.", "Remember you are happier when you sleep enough 😘🧡💜")
+        else:
+            commands = f"""
+            playerctl pause || true
+            # Max volume & unmute
+            pactl set-sink-volume @DEFAULT_SINK@ 100%
+            pactl set-sink-mute @DEFAULT_SINK@ 0
+            # Play music
+            cvlc --play-and-exit --no-loop --no-volume-save "{good_night_music}"
+            # Hibernate
+            systemctl hibernate
+            """
+            subprocess.run(dedent(commands), shell=True)
+    else:
+        pass
+
+
 @every(minutes=1)
 def screenshot():
-    pass
-
-
-@every(minutes=7)
-def go_to_sleep():
     pass
 
 

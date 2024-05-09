@@ -15,7 +15,6 @@ from textwrap import dedent
 import time
 import tempfile
 from contextlib import contextmanager
-import traceback
 from typing import Annotated, Literal
 from random import choice
 from pathlib import Path
@@ -135,7 +134,7 @@ def get_audio_input(event):
 # --------------------- CLI --------------------- #
 
 
-app = typer.Typer()
+app = typer.Typer(add_completion=False)
 
 
 @app.callback(invoke_without_command=True)
@@ -515,9 +514,12 @@ def web():
 
 
 from ynab import app as ynab_app
+from dcron import dcron
 
-app.add_typer(ynab_app, name="ynab", no_args_is_help=True)
-
+app.add_typer(ynab_app, name="ynab", no_args_is_help=True, help="Commands to facilitate YNAB.")
+app.add_typer(
+    dcron.app, name="dcron", no_args_is_help=True, help="My own cron jobs. Stuff that repeats."
+)
 
 if __name__ == "__main__":
     app()
