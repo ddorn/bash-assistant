@@ -458,6 +458,86 @@ def web():
 
 
 @app.command()
+def commit(max_cost: float = 0.05):
+    """Generate a commit message for the current changes."""
+
+    # We probably want to see the status before committing.
+    subprocess.run(["git", "status"])
+
+    # Capture the diff for the changes that were already added to the index.
+    diff = subprocess.run(
+        ["git", "diff", "--cached"], capture_output=True, text=True, check=True
+    ).stdout
+
+    if not diff:
+        print("❌  Nothing added to commit.")
+        exit(1)
+
+    system = """
+    Generate a commit message for the following git diff. Use the Conventional Commits format.
+
+    Template:
+    <commit>
+        <description>
+            optional body
+
+            optional footer
+        </description>
+        <breaking>
+            optional scope: breaking changes
+        </breaking>
+        <title>
+            type(optional scope): title
+        </title>
+    </commit>
+
+    Example output:
+    <commit>
+        <description>
+            Rewrite old code to modern standards.
+        </description>
+        <breaking>
+            use JavaScript features not available in Node 6.
+        </breaking>
+        <title>
+            chore: drop support for Node 6
+        </title>
+    </commit>
+    
+    Be precise and concise.
+    """
+    system = dedent(system).strip()
+
+    messages = [
+        dict(role="user", content=diff),
+        dict(role="assistant", content="<commit>"),
+    ]
+
+    model = constants.CHEAPEST_MODEL
+    response = print_join(ai_stream(system, messages, model=model, confirm=max_cost))
+    tags = soft_parse_xml(response)["commit"]
+
+    description = tags.get("description", "")
+    breaking = tags.get("breaking", "")
+    title = tags.get("title", "")
+
+    if not title:
+        print("❌  No commit message generated.")
+        exit(1)
+
+    if breaking:
+        description += "\n\nBREAKING CHANGE: " + breaking
+        # Add a ! after the type in the title. Title fmt: type(optional scope): title
+        # Add the ! after the optional scope.
+        title = re.sub(r"(\w+)(\(.+?\))?:", r"\1\2!: ", title)
+
+    message = f"{title}\n\n{description.strip()}"
+
+    # Print in yellow to make it stand out.
+    print(f"\n\033[33m{message}\033[0m")
+
+
+@app.command()
 def timer(
     duration: list[str],
     bell: Path = Path("~/Media/time_over.ogg").expanduser(),
