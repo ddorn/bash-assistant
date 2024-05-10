@@ -458,7 +458,7 @@ def web():
 
 
 @app.command()
-def commit(max_cost: float = 0.01, commit_file: Path = None):
+def commit(max_cost: float = 0.01, commit_file: Path = None, model: str = constants.CHEAP_BUT_GOOD):
     """Generate a commit message for the current changes."""
 
     # We probably want to see the status before committing.
@@ -535,7 +535,6 @@ def commit(max_cost: float = 0.01, commit_file: Path = None):
         # dict(role="assistant", content="<commit>"),
     ]
 
-    model = constants.CHEAPEST_MODEL
     response = print_join(ai_stream(system, messages, model=model, confirm=max_cost))
     tags = soft_parse_xml(response)["commit"]
 
