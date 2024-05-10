@@ -479,38 +479,60 @@ def commit(max_cost: float = 0.01, commit_file: Path = None):
     Template:
     <commit>
         <description>
-            optional body
-
-            optional footer
+            optional body: describe the changes in more details
         </description>
         <breaking>
-            optional scope: breaking changes
+            optional scope: breaking changes to the interface etc.
         </breaking>
         <title>
-            type(optional scope): title
+            type(optional scope): title of up to 50 characters
         </title>
     </commit>
 
     Example output:
     <commit>
         <description>
-            Rewrite old code to modern standards.
-        </description>
+            Improve timer command to use multiple durations and ring options.
+            Add dependency on rich for better output formatting.
+        </description> 
         <breaking>
-            use JavaScript features not available in Node 6.
+            The timer now accepts a list instead of a single string.
         </breaking>
         <title>
-            chore: drop support for Node 6
+            feat(timer): Add multiple durations and ring options
         </title>
     </commit>
     
-    Be precise and concise.
+    Example output:
+    <commit>
+        <description>
+            Mypy now properly emulates attrs' logic so that custom `__hash__`
+            implementations are preserved, `@frozen` subclasses are always hashable,
+            and classes are only made unhashable based on the values of `eq` and
+            `unsafe_hash`.
+        </description>
+        <title>
+            fix(attrs): Fix emulating hash method logic
+        </title>
+    </commit>
+    
+    Example output:
+    <commit>
+        <description>
+            * 📝 Add source examples for custom parameter types with Annotated
+            * 📝 Update docs for custom parameters with Annotated
+        </description>
+        <title>
+            docs: Update docs examples for custom param types using Annotated
+        </title>
+    </commit>
     """
+    diff += "\n\n\nGenerate a commit message for the previous git diff."
     system = dedent(system).strip()
 
     messages = [
         dict(role="user", content=diff),
-        dict(role="assistant", content="<commit>"),
+        # dict(role="assistant", content="<commit>"),
     ]
 
     model = constants.CHEAPEST_MODEL
