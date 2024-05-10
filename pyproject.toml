@@ -27,6 +27,8 @@ piexif = "^1.1.3"
 plotly = "^5.22.0"
 textual = "^0.58.1"
 pyfiglet = "^1.0.2"
+tiktoken = "^0.6.0"
+inquirerpy = "^0.3.4"
 
 [tool.poetry.scripts]
 bai = 'bai.bai:app'
