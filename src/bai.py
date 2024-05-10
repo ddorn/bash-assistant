@@ -458,7 +458,7 @@ def web():
 
 
 @app.command()
-def commit(max_cost: float = 0.05):
+def commit(max_cost: float = 0.05, commit_file: Path = None):
     """Generate a commit message for the current changes."""
 
     # We probably want to see the status before committing.
@@ -534,7 +534,10 @@ def commit(max_cost: float = 0.05):
     message = f"{title}\n\n{description.strip()}"
 
     # Print in yellow to make it stand out.
-    print(f"\n\033[33m{message}\033[0m")
+    if commit_file:
+        commit_file.write_text(message)
+    else:
+        print(f"\n\033[33m{message}\033[0m")
 
 
 @app.command()
