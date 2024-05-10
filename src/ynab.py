@@ -65,7 +65,9 @@ def create_split_0_transaction(amount: float, payee_name: str, date: datetime, n
     if not no_confirm:
         print(f"🤔 Create split transaction?")
         print(f"    Sesterce: {payee_name} - {date} - ±{amount}")
-        if input("Continue? [y/N]: ") != "y":
+        from InquirerPy import inquirer
+
+        if not inquirer.confirm("Continue?", default=True).execute():
             print("🚫 Skipped")
             return
 
@@ -106,7 +108,9 @@ def add_split_to_my_transaction(transaction, row, no_confirm):
         category = transaction["category_name"] or "[Uncategorized]"
         print(f"      New split: {paid_for_me / 1000}€ {category}")
         print(f"      New split: {paid_for_coloc / 1000}€ Coloc Split")
-        if input("Continue? [y/N]: ") != "y":
+        from InquirerPy import inquirer
+
+        if not inquirer.confirm("Continue?", default=True).execute():
             print("🚫 Skipped")
             return
 
@@ -121,9 +125,65 @@ def add_split_to_my_transaction(transaction, row, no_confirm):
         print(f"🌟 Updated transaction for {row['Title']} with split")
 
 
+def sesterce_api_to_df(data: dict):
+    """Convert the sesterce API response to a DataFrame with the same columns as their CSV export."""
+
+    import pandas as pd
+
+    spendings = data["spendings"]
+    contributors = {d["id"]: d["name"] for d in data["contributors"]}
+
+    rows = []
+    for spending in spendings:
+        row = {
+            "Date": spending["date"],
+            "Title": spending["description"],
+        }
+        # Initialize the columns
+        for name in contributors.values():
+            row[f"Paid for {name}"] = 0
+            row[f"Paid by {name}"] = 0
+
+        # First compute+record how much was spent
+        total = 0
+        for payment in spending["financed"]:
+            assert payment["type"] == "fixed"
+            row[f"Paid by {contributors[payment['contributor']]}"] += payment["value"] / 100
+            total += payment["value"] / 100
+
+        # Then add the fixed parts + track the fractional parts
+        parts = 0
+        fixed = 0
+        for payment in spending["spent"]:
+            if payment["type"] == "fixed":
+                row[f"Paid for {contributors[payment['contributor']]}"] += payment["value"] / 100
+                fixed += payment["value"] / 100
+            else:
+                assert payment["type"] == "part"
+                parts += payment["value"]
+
+        # Split the reminder according to fractional parts
+        for payment in spending["spent"]:
+            if payment["type"] == "part":
+                row[f"Paid for {contributors[payment['contributor']]}"] += (
+                    payment["value"] / parts * (total - fixed)
+                )
+
+        # Sanity check spent == financed
+        spent = sum(row[f"Paid for {name}"] for name in contributors.values())
+        financed = sum(row[f"Paid by {name}"] for name in contributors.values())
+        assert abs(spent - financed) < 0.01
+
+        rows.append(row)
+
+    return pd.DataFrame(rows)
+
+
 @app.command()
-def sesterce(input_file: Path, no_confirm: bool = False, since: str = "last"):
+def sesterce(input_file: Path = None, no_confirm: bool = False, since: str = "last"):
     """Import split transactions from Sesterce to YNAB."""
+
+    # %%
 
     import pandas as pd
     import utils
@@ -157,7 +217,14 @@ def sesterce(input_file: Path, no_confirm: bool = False, since: str = "last"):
     # %% Load the transactions from the CSV file
 
     # input_file = Path("~/Downloads/export_txerrkyw.csv").expanduser()
-    df = pd.read_csv(input_file)
+    if input_file is None:
+        # Read from the sesterce API
+        data = requests.get(
+            config.SESTERCE_ENDPOINT, headers={"Authorization": config.SESTERCE_AUTH}
+        ).json()
+        df = sesterce_api_to_df(data)
+    else:
+        df = pd.read_csv(input_file)
     # print(df.columns)
     # Index(['Date', 'Title', 'Paid by Alexandre', 'Paid by Angélina',
     #    'Paid by Diego', 'Paid for Alexandre', 'Paid for Angélina',
@@ -168,7 +235,6 @@ def sesterce(input_file: Path, no_confirm: bool = False, since: str = "last"):
     df["Date"] = pd.to_datetime(df["Date"], format="%Y%m%d")
     # Filter out old transactions
     df = df[df["Date"] >= since]
-    df
 
     # %%
 
