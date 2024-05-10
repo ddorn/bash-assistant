@@ -1,14 +1,10 @@
 from dataclasses import dataclass
 from datetime import datetime
-from functools import partial
 import json
 from pathlib import Path
-import time
 import streamlit as st
-from streamlit_pills import pills as st_pills
 
-import utils
-import constants
+from src import utils, constants
 
 
 DATA = utils.DATA / "chats"
@@ -28,7 +24,7 @@ class GenerationArgs:
     temperature: float
 
 
-GENERATION_ARGS = GenerationArgs(model=constants.MODELS[0], temperature=0.2)
+GENERATION_ARGS = GenerationArgs(model=constants.CHEAPEST_MODEL, temperature=0.2)
 
 
 @dataclass

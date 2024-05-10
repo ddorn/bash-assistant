@@ -31,7 +31,7 @@ tiktoken = "^0.6.0"
 inquirerpy = "^0.3.4"
 
 [tool.poetry.scripts]
-bai = 'bai.bai:app'
+# bai = 'src.bai:app'
 
 [tool.poetry.group.dev.dependencies]
 ipykernel = "^6.29.4"

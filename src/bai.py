@@ -2,30 +2,28 @@
 
 """A bash assistant that can run commands and answer questions about the system."""
 
-from asyncio import constants
-import difflib
 import base64
+import difflib
 import enum
 import io
 import os
 import re
 import subprocess
 import sys
-from textwrap import dedent
-import time
 import tempfile
+import time
 from contextlib import contextmanager
-from typing import Annotated, Literal
-from random import choice
 from pathlib import Path
+from random import choice
+from textwrap import dedent
+from typing import Annotated, Literal
 
-import typer
-import rich
 import openai
+import rich
+import typer
 
-from config import SIGNAL_SPAM_USER
 import constants
-from utils import ai_query, ai_stream, fmt_diff, get_text_input
+from utils import ai_query, ai_stream, fmt_diff, get_text_input, ai_chat, print_join, soft_parse_xml
 
 
 def run_suggested_command(command: str, bash_console) -> tuple[str, str]:
@@ -324,7 +322,6 @@ def generate_image(
 
     # Save the image with the extension from output.
     import PIL.Image
-    from PIL.ExifTags import Base
 
     img = PIL.Image.open(io.BytesIO(base64.b64decode(b64)))
 
@@ -349,8 +346,6 @@ def add_exif(img_path: Path, prompt: str, revised_prompt: str):
     """Add the given prompts to the image's Exif metadata."""
 
     import PIL.Image
-    from PIL.ExifTags import Base
-    import piexif
     import piexif.helper
 
     img = PIL.Image.open(img_path)
@@ -370,7 +365,6 @@ def show_exif(png_path: Path):
 
     import PIL.Image
     from rich import print
-    import piexif
     import piexif.helper
 
     img = PIL.Image.open(png_path)
@@ -449,56 +443,6 @@ def report_spam():
 
 
 @app.command()
-def record():
-    """Record audio from the microphone, show an animation and optionally transcribe it.
-
-    Press Ctrl+C to stop recording.
-    """
-
-    import sounddevice as sd
-    import numpy as np
-    import time
-    import mp3
-
-    mini = 0.00
-    maxi = 0.001
-
-    def callback(indata, outdata, frames, time, status):
-        if status:
-            print(status)
-        # outdata[:] = indata
-        strength = np.mean(np.abs((indata)))
-        nonlocal mini, maxi
-        mini = min(mini, strength)
-        maxi = max(maxi, strength)
-
-        bar_length = 50
-        normalized = (strength - mini) / (maxi - mini)
-        bar = "#" * int(bar_length * normalized)
-        print(len(indata), bar)
-
-        # Write as MP3 frames to the file.
-        encoder.write(indata)
-
-    duration = 5.5  # seconds
-    # File to stream the recording to.
-    temp_file = "/tmp/record.mp3"
-    # We want to write the new frames as they come in.
-    with open(temp_file, "wb") as mp3_file:
-
-        encoder = mp3.Encoder(mp3_file)
-        encoder.set_bit_rate(64)
-        encoder.set_quality(5)
-        encoder.set_sample_rate(44100)
-        encoder.set_channels(2)
-
-        with sd.Stream(channels=2, callback=callback, latency=0.1, samplerate=44100):
-            sd.sleep(int(duration * 1000))
-
-        encoder.flush()
-
-
-@app.command()
 def web():
     """Start a web server to interact with the assistant."""
 
@@ -514,13 +458,18 @@ def web():
 
 
 @app.command()
-def timer(duration: str):
+def timer(
+    duration: list[str],
+    bell: Path = Path("~/Media/time_over.ogg").expanduser(),
+    ring_count: int = -1,
+    ring_interval: int = 10,
+):
     """Start a timer for the given duration, e.g. '5m' or '1h 10s'."""
 
     # Parse the duration.
     total = 0
     multiplier = {"s": 1, "m": 60, "h": 3600, "d": 86400}
-    for part in duration.split():
+    for part in duration:
         try:
             total += int(part[:-1]) * multiplier[part[-1]]
         except (ValueError, KeyError):
@@ -529,11 +478,11 @@ def timer(duration: str):
 
     # Show a visual timer with Textual.
     from textual.app import App
-    from textual.widgets import Label, ProgressBar, Footer, Static
+    from textual.widgets import Footer, Static
     from textual.reactive import reactive
     import pyfiglet
 
-    fonts = [
+    fonts_names = [
         # Largest to smallest
         "univers",
         "colossal",
@@ -541,7 +490,7 @@ def timer(duration: str):
         "4max",
         "3x5",
     ]
-    fonts = [pyfiglet.Figlet(font=font) for font in fonts]
+    fonts = [pyfiglet.Figlet(font=font) for font in fonts_names]
 
     def fmt_duration(sec: int) -> str:
         if sec < 0:
@@ -562,9 +511,10 @@ def timer(duration: str):
         start_time = reactive(time.time)
         time_shown = reactive(0)
 
-        def __init__(self, duration: float):
+        def __init__(self):
             self.duration = duration
-            self.was_rung = False
+            self.last_rung = 0
+            self.ring_count = 0
             super().__init__()
 
         def on_mount(self):
@@ -579,12 +529,14 @@ def timer(duration: str):
             self.time_shown = int(sec)
 
         def watch_time_shown(self):
-            if self.time_shown < 0 and not self.was_rung:
-                self.was_rung = True
-                subprocess.Popen(["paplay ~/Documents/time_over.ogg"], shell=True)
-                return
+            if self.time_shown < 0:
+                if self.ring_count != ring_count and time.time() - self.last_rung > ring_interval:
+                    self.last_rung = time.time()
+                    self.ring_count += 1
+                    subprocess.Popen(["paplay", bell])
             elif self.time_shown > 0:
-                self.was_rung = False
+                self.last_rung = 0
+                self.ring_count = 0
 
             sec_str = fmt_duration(self.time_shown)
             # What space do we have?
@@ -618,11 +570,10 @@ def timer(duration: str):
         ]
 
         def __init__(self, duration: int):
-            self.initial_duration = duration
             super().__init__()
 
         def compose(self):
-            yield TimeDisplay(self.initial_duration)
+            yield TimeDisplay()
             yield Footer()
 
         def add_time(self, amount: int):

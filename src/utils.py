@@ -1,7 +1,8 @@
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Generator
+from textwrap import dedent
+from typing import Generator, Iterator
 import anthropic
-from httpx import stream
 import openai
 import constants
 import config
@@ -42,7 +43,7 @@ def fmt(
     return text
 
 
-def fmt_diff(diff: list[str]) -> tuple[str, str]:
+def fmt_diff(diff: Iterator[str]) -> tuple[str, str]:
     """Format the output of difflib.ndiff.
 
     Returns:
@@ -94,34 +95,39 @@ def get_text_input(custom: str = "") -> str:
 anthropic_client = anthropic.Client(api_key=config.ANTHROPIC_API_KEY)
 
 
-def ai_chat(system: str | None, messages: list[dict[str, str]], model: str = None) -> str:
+def ai_chat(
+    system: str | None, messages: list[dict[str, str]], model: str = None, confirm: bool = False
+) -> str:
     """Chat with the AI using the given messages."""
 
     if model is None:
-        if constants.USE_OPENAI:
-            model = constants.OPENAI_MODEL
-        else:
-            model = constants.ANTHROPIC_MODEL
+        model = constants.OPENAI_MODEL if constants.USE_OPENAI else constants.ANTHROPIC_MODEL
+
+    if system:
+        messages = [dict(role="system", content=system)] + messages
+
+    if confirm:
+        from InquirerPy import inquirer
+
+        estimation = estimate_cost(messages, model)
+
+        if not inquirer.confirm(f"{model}: {estimation}. Confirm?").execute():
+            return "Aborted."
 
     if "claude" in model:
-        kwargs = {}
+        # System message is a kwarg
         if system:
-            kwargs = dict(system=system)
+            del messages[0]
 
         message = anthropic_client.messages.create(
             model=constants.ANTHROPIC_MODEL,
             max_tokens=1000,
             temperature=0.2,
+            system=system,
             messages=messages,
-            **kwargs,
         )
-        return message.content
+        return message.content[0].text
     else:
-        if system:
-            messages = [
-                dict(role="system", content=system),
-                *messages,
-            ]
         response = openai.chat.completions.create(
             model=constants.OPENAI_MODEL,
             max_tokens=1000,
@@ -132,15 +138,31 @@ def ai_chat(system: str | None, messages: list[dict[str, str]], model: str = Non
 
 
 def ai_stream(
-    system: str | None, messages: list[dict[str, str]], model: str = None, **kwargs
+    system: str | None,
+    messages: list[dict[str, str]],
+    model: str = None,
+    confirm: float | None = None,
+    **kwargs,
 ) -> Generator[str, None, None]:
     """Stream with the AI using the given messages."""
 
     if model is None:
-        if constants.USE_OPENAI:
-            model = constants.OPENAI_MODEL
-        else:
-            model = constants.ANTHROPIC_MODEL
+        model = constants.OPENAI_MODEL if constants.USE_OPENAI else constants.ANTHROPIC_MODEL
+
+    if system:
+        messages = [dict(role="system", content=system)] + messages
+
+    if confirm is not None:
+        from InquirerPy import inquirer
+
+        estimation = estimate_cost(messages, model)
+        msg = f"{model}: {estimation}"
+
+        if estimation.input_cost < confirm:
+            print(f"{msg}. Confirming automatically.")
+        elif not inquirer.confirm(f"{msg}. Confirm?").execute():
+            yield "Aborted."
+            return
 
     new_kwargs = dict(
         max_tokens=1000,
@@ -150,21 +172,20 @@ def ai_stream(
 
     if "claude" in model:
         if system:
-            kwargs["system"] = system
+            del messages[0]
+
+        if messages[-1]["role"] == "assistant":
+            yield messages[-1]["content"]
 
         with anthropic_client.messages.stream(
             model=constants.ANTHROPIC_MODEL,
             messages=messages,
+            system=system,
             **kwargs,
         ) as stream:
             for text in stream.text_stream:
                 yield text
     else:
-        if system:
-            messages = [
-                dict(role="system", content=system),
-                *messages,
-            ]
         response = openai.chat.completions.create(
             model=constants.OPENAI_MODEL,
             messages=messages,
@@ -179,10 +200,112 @@ def ai_stream(
             yield text
 
 
-def ai_query(system: str, user: str) -> str:
+def print_join(iterable: Iterator[str]) -> str:
+    """Print elements of an iterable as they come, and return the joined string."""
+
+    text = ""
+    for chunk in iterable:
+        print(chunk, end="")
+        text += chunk
+    return text
+
+
+def ai_query(system: str, user: str, model: str | None = None, confirm: bool = False) -> str:
     """Query the AI with the given system and user message."""
 
-    return ai_chat(system, [dict(role="user", content=user)])
+    return ai_chat(system, [dict(role="user", content=user)], model=model, confirm=confirm)
+
+
+def soft_parse_xml(text: str) -> dict[str, str | dict | list]:
+    """Extract xml tags from the free form text."""
+
+    import re
+
+    tags = re.findall(r"<(\w+)>(.*?)</\1>", text, re.DOTALL)
+    map = {}
+    for key, value in tags:
+        value = dedent(value).strip()
+        children = soft_parse_xml(value)
+        value = children if children else value
+        if key not in map:
+            map[key] = value
+        elif isinstance(map[key], list):
+            map[key].append(value)
+        else:
+            map[key] = [map[key], value]
+
+    return map
+
+
+if __name__ == "__main__":
+    text = """
+    Salut <name>John</name>! <age>25</age> years old.
+    
+    Nested:
+    <nested>
+        Okay
+        <key>value1</key>
+        <key>value2</key>
+        <other><with>nesting</with> yes?</other>
+    </nested>
+    
+    Thanks <name>Diego</name>!
+    """
+
+    xml = soft_parse_xml(text)
+    assert xml == dict(
+        name=["John", "Diego"],
+        age="25",
+        nested=dict(
+            key=["value1", "value2"],
+            other={"with": "nesting"},
+        ),
+    )
+    print("XML test passed! 🎉")
+
+
+@dataclass
+class CostEstimation:
+    input_tokens: int
+    input_cost: float
+    output_cost: float
+    is_approximate: bool
+
+    def __str__(self):
+        return (
+            f"Cost for {self.input_tokens} tokens: "
+            f"{self.input_cost:.4f}$ + "
+            f"{self.output_cost * 1000:.4f}$/1k output tokens"
+        )
+
+
+def estimate_cost(messages: list[dict], model: str) -> CostEstimation:
+    """Estimate the cost of the AI completion."""
+
+    import tiktoken
+
+    input_cost, output_cost = constants.MODELS_COSTS[model]
+
+    try:
+        encoding = tiktoken.encoding_for_model(model)
+        approx = False
+    except KeyError:
+        # This makes it work also for Anthropic models.
+        # This will be less accurate than for OpenAI, but their tokenization is not public
+        encoding = tiktoken.encoding_for_model("gpt-3.5-turbo")
+        approx = True
+
+    input_tokens = 0
+    for msg in messages:
+        input_tokens += len(encoding.encode(msg["content"]))
+        input_tokens += 4  # for the role and the separator
+
+    return CostEstimation(
+        input_tokens=input_tokens,
+        input_cost=input_cost * input_tokens / 1_000_000,
+        output_cost=output_cost / 1_000_000,
+        is_approximate=approx,
+    )
 
 
 def notify(title: str, message: str, urgency: str = "normal"):
