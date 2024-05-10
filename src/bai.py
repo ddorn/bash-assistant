@@ -458,7 +458,7 @@ def web():
 
 
 @app.command()
-def commit(max_cost: float = 0.05, commit_file: Path = None):
+def commit(max_cost: float = 0.01, commit_file: Path = None):
     """Generate a commit message for the current changes."""
 
     # We probably want to see the status before committing.
@@ -470,7 +470,7 @@ def commit(max_cost: float = 0.05, commit_file: Path = None):
     ).stdout
 
     if not diff:
-        print("❌  Nothing added to commit.")
+        print("❌ Nothing added to commit.")
         exit(1)
 
     system = """
@@ -522,7 +522,7 @@ def commit(max_cost: float = 0.05, commit_file: Path = None):
     title = tags.get("title", "")
 
     if not title:
-        print("❌  No commit message generated.")
+        print("❌ No commit message generated.")
         exit(1)
 
     if breaking:
@@ -538,6 +538,24 @@ def commit(max_cost: float = 0.05, commit_file: Path = None):
         commit_file.write_text(message)
     else:
         print(f"\n\033[33m{message}\033[0m")
+
+
+@app.command()
+def commit_install(force: bool = False):
+    """Install the commit hook to generate commit messages."""
+
+    hook = constants.ROOT / "scripts" / "prepare-commit-msg"
+    git_path = subprocess.run(
+        ["git", "rev-parse", "--git-dir"], capture_output=True, text=True, check=True
+    ).stdout.strip()
+    hook_path = Path(git_path) / "hooks" / "prepare-commit-msg"
+
+    if hook_path.exists() and not force:
+        print(f"❌ {hook_path} already exists. Use --force to overwrite.")
+        quit(1)
+
+    subprocess.run(["cp", hook, hook_path], check=True)
+    print("✅ Commit hook installed.")
 
 
 @app.command()
