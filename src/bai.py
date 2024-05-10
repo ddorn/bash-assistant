@@ -446,7 +446,7 @@ def report_spam():
 def web():
     """Start a web server to interact with the assistant."""
 
-    command = "streamlit run bai/web.py"
+    command = "streamlit run src/web.py"
 
     # Make sure the command is run in the correct directory.
     os.chdir(constants.ROOT)
@@ -634,7 +634,7 @@ def timer(
         time_shown = reactive(0)
 
         def __init__(self):
-            self.duration = duration
+            self.duration = total
             self.last_rung = 0
             self.ring_count = 0
             super().__init__()
