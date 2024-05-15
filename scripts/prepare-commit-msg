@@ -9,4 +9,5 @@ SHA1=$3
 before=$(cat "$COMMIT_MSG_FILE")
 d commit --commit-file "$COMMIT_MSG_FILE"
 echo >> "$COMMIT_MSG_FILE"
+echo "" >> "$COMMIT_MSG_FILE"
 echo "$before" >> "$COMMIT_MSG_FILE"
