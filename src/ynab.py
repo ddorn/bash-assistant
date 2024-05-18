@@ -33,7 +33,9 @@ def is_same(sesterce_row, ynab_transaction):
         if len(ynab_transaction["subtransactions"]) != 2:
             return False
         for sub in ynab_transaction["subtransactions"]:
-            if abs(sub["amount"]) != sesterce_row["Paid for Diego"] * 1000:
+            # print(sub, sesterce_row)
+            # round to avoid .6666667 problems
+            if round(abs(sub["amount"]) - sesterce_row["Paid for Diego"] * 1000) == 0:
                 return False
 
     return True
@@ -194,6 +196,9 @@ def sesterce(input_file: Path = None, no_confirm: bool = False, since: str = "la
             since = since_file.read_text().strip()
         else:
             since = "2000-01-01"
+    elif since.endswith("d"):
+        since = datetime.now() - pd.Timedelta(since)
+        since = since.strftime("%Y-%m-%d")
     elif since == "all":
         since = "2000-01-01"
 
@@ -245,6 +250,10 @@ def sesterce(input_file: Path = None, no_confirm: bool = False, since: str = "la
     # 3. If found and not split, create two splits
 
     for i, row in df.iterrows():
+        if row["Paid by Diego"] == 0 and row["Paid for Diego"] == 0:
+            print(f"🤔 Skipping transaction {row['Title']} with no amount for Diego")
+            continue
+
         match = match_sesterce_ynab(row, transactions)
 
         if match and match["subtransactions"]:
