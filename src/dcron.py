@@ -155,7 +155,13 @@ def go_to_sleep(
 
 @every(minutes=1)
 def screenshot():
-    pass
+    SCREENSHOTS = utils.DATA / "screenshots"
+    SCREENSHOTS.mkdir(exist_ok=True)
+
+    filename = datetime.now().strftime("%Y-%m-%d_%H-%M-%S.png")
+    path = SCREENSHOTS / filename
+
+    subprocess.check_call(["grim", str(path)])
 
 
 @every(minutes=45)
