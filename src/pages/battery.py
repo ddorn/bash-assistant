@@ -4,15 +4,69 @@ import plotly.express as px
 import plotly.graph_objects as go
 
 
-battery_logs = "~/logs/battery_log.csv"
+st.set_page_config(layout="wide")
+
+battery_logs = "~/logs/battery.csv"
 
 data = pd.read_csv(battery_logs)
+data["DateTime"] = pd.to_datetime(data["DateTime"])
+data["Date"] = data["DateTime"].dt.date
+data["Weekday"] = data["DateTime"].dt.strftime("%A")
 
 st.title("Battery Logs")
 st.write(data.head())
 
-# Plot "Battery Level" vs combined columns "Time" + "Date"
-data["DateTime"] = pd.to_datetime(data["Date"] + " " + data["Time"])
+# %% Plot of the time I spend on my computer each day
+# For each log, find the time until the next log, but capped by 5 minutes
+times_diff = data["DateTime"].diff()
+times_diff = times_diff.dt.total_seconds() / 60
+times_diff = times_diff.clip(upper=2)
+
+
+data["Time"] = pd.to_datetime(data["DateTime"].dt.strftime("%H:%M:%S"))
+data["TimeHuman"] = data["DateTime"].dt.strftime("%H:%M")
+
+fig = px.scatter(
+    data,
+    x="Date",
+    y="Time",
+    color="Weekday",
+    # Set the correct order for the weekdays
+    category_orders={
+        "Weekday": ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+    },
+    # Set a nice ordered cycling color scale
+    color_discrete_sequence=px.colors.sequential.Plasma,
+    title="Time Spent on Computer per Day",
+)
+# Add trace for total time spent per day
+data["Time Spent"] = times_diff
+data["Time Spent"] = data["Time Spent"].fillna(0)
+time_spent = data.groupby("Date")["Time Spent"].sum().reset_index()
+# Convert to hours
+time_spent["Time Spent"] = time_spent["Time Spent"] / 60
+time_spent["Weekday"] = pd.to_datetime(time_spent["Date"]).dt.strftime("%A")
+
+fig.add_trace(
+    go.Line(
+        x=time_spent["Date"],
+        y=time_spent["Time Spent"],
+        # mode="markers+text",
+        text=time_spent["Time Spent"].apply(lambda x: f"{x:.2f}h"),
+        textposition="top center",
+        marker=dict(color="black"),
+        name="Total Time Spent",
+        # Secondary y axis
+        yaxis="y2",
+        # Fill the area under the line with light color
+        fill="tozeroy",
+        fillcolor="rgba(0,0,0,0.1)",
+    )
+)
+st.write(fig, use_container_width=True)
+
+
+# %%     Plot "Battery Level" vs combined columns "Time" + "Date"
 
 # Add a None entry when there is more than N minutes between the logs
 times_diff = data["DateTime"].diff()
@@ -29,7 +83,7 @@ fig = px.line(
 )
 st.write(fig)
 
-# A plot per day, without considering the Date
+# %% A plot per day, without considering the Date
 data["Time"] = pd.to_datetime(data["Time"])
 data["Time"] = data["Time"].dt.time
 
@@ -55,7 +109,7 @@ fig.update_layout(title="Battery Level vs Time per Day")
 st.plotly_chart(fig)
 
 
-# Scatter "Estimated Time Remaining" (fmt: hh:mm:ss) vs "Battery Level"
+# %% Scatter "Estimated Time Remaining" (fmt: hh:mm:ss) vs "Battery Level"
 # Convert "Estimated Time Remaining" to minutes
 data["Estimated Time Remaining"] = pd.to_timedelta(data["Estimated Time Remaining"])
 data["Estimated Time Remaining"] = data["Estimated Time Remaining"].dt.total_seconds() / 60

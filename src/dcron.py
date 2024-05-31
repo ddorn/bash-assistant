@@ -69,6 +69,8 @@ class Dcron:
                     traceback.print_exc()
 
                 self.calls[name] = now
+            else:
+                print(f"⏳ {name} - {minutes * 60 - 10 - (now - last_call):.0f}s left")
 
         CALLS_FILE.write_text(json.dumps(self.calls))
 
