@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from pathlib import Path
+import sys
 from textwrap import dedent
 from typing import Generator, Iterator
 import anthropic
@@ -107,11 +108,9 @@ def ai_chat(
         messages = [dict(role="system", content=system)] + messages
 
     if confirm:
-        from InquirerPy import inquirer
-
         estimation = estimate_cost(messages, model)
 
-        if not inquirer.confirm(f"{model}: {estimation}. Confirm?").execute():
+        if not confirm_action(f"{model}: {estimation}. Confirm?"):
             return "Aborted."
 
     if "claude" in model:
@@ -153,15 +152,12 @@ def ai_stream(
         messages = [dict(role="system", content=system)] + messages
 
     if confirm is not None:
-        from InquirerPy import inquirer
-
         estimation = estimate_cost(messages, model)
         msg = f"{model}: {estimation}"
 
         if estimation.input_cost < confirm:
             print(f"{msg}. Confirming automatically.")
-        elif not inquirer.confirm(f"{msg}. Confirm?").execute():
-            yield "Aborted."
+        elif not confirm_action(f"{msg}. Confirm?"):
             return
 
     new_kwargs = dict(
@@ -240,7 +236,7 @@ def soft_parse_xml(text: str) -> dict[str, str | dict | list]:
 if __name__ == "__main__":
     text = """
     Salut <name>John</name>! <age>25</age> years old.
-    
+
     Nested:
     <nested>
         Okay
@@ -248,7 +244,7 @@ if __name__ == "__main__":
         <key>value2</key>
         <other><with>nesting</with> yes?</other>
     </nested>
-    
+
     Thanks <name>Diego</name>!
     """
 
@@ -314,3 +310,18 @@ def notify(title: str, message: str, urgency: str = "normal"):
     import subprocess
 
     subprocess.run(["notify-send", title, message, f"--urgency={urgency}"], check=True)
+
+
+def confirm_action(message: str) -> bool:
+    """Ask the user to confirm an action."""
+
+    from InquirerPy import inquirer
+
+    try:
+        return inquirer.confirm(message).execute()
+    except EOFError:
+        # When using `d commit` through git, the confirmation doesn't work, as the input is not
+        # Interactive. In this case, we fallback to a simple print and can't confirm.
+        print(message + " No.", file=sys.stderr)
+        print("Could not confirm action. Aborted.", file=sys.stderr)
+        return False

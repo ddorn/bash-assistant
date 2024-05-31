@@ -458,7 +458,11 @@ def web():
 
 
 @app.command()
-def commit(max_cost: float = 0.01, commit_file: Path = None, model: str = constants.CHEAP_BUT_GOOD):
+def commit(
+    max_cost: float = 0.02,
+    commit_file: Path = None,
+    model: str = constants.CHEAP_BUT_GOOD,
+):
     """Generate a commit message for the current changes."""
 
     # We probably want to see the status before committing.
@@ -494,7 +498,7 @@ def commit(max_cost: float = 0.01, commit_file: Path = None, model: str = consta
         <description>
             Improve timer command to use multiple durations and ring options.
             Add dependency on rich for better output formatting.
-        </description> 
+        </description>
         <breaking>
             The timer now accepts a list instead of a single string.
         </breaking>
@@ -502,7 +506,7 @@ def commit(max_cost: float = 0.01, commit_file: Path = None, model: str = consta
             feat(timer): Add multiple durations and ring options
         </title>
     </commit>
-    
+
     Example output:
     <commit>
         <description>
@@ -515,7 +519,7 @@ def commit(max_cost: float = 0.01, commit_file: Path = None, model: str = consta
             fix(attrs): Fix emulating hash method logic
         </title>
     </commit>
-    
+
     Example output:
     <commit>
         <description>
@@ -536,7 +540,7 @@ def commit(max_cost: float = 0.01, commit_file: Path = None, model: str = consta
     ]
 
     response = print_join(ai_stream(system, messages, model=model, confirm=max_cost))
-    tags = soft_parse_xml(response)["commit"]
+    tags = soft_parse_xml(response).get("commit", {})
 
     description = tags.get("description", "")
     breaking = tags.get("breaking", "")
@@ -582,7 +586,7 @@ def commit_install(force: bool = False):
 @app.command()
 def timer(
     duration: list[str],
-    bell: Path = Path("~/Media/time_over.ogg").expanduser(),
+    bell: Path = Path("~/Media/bell.mp3").expanduser(),
     ring_count: int = -1,
     ring_interval: int = 10,
 ):
