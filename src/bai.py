@@ -15,12 +15,13 @@ import time
 from contextlib import contextmanager
 from pathlib import Path
 from random import choice
-from textwrap import dedent
+from textwrap import dedent, indent
 from typing import Annotated, Literal
 
 import openai
 import rich
 import typer
+import yaml
 
 import constants
 from utils import ai_query, ai_stream, fmt_diff, get_text_input, ai_chat, print_join, soft_parse_xml
@@ -150,11 +151,11 @@ def callback(ctx: typer.Context, anthropic: bool = False):
 
     # If no command is given, run the bash assistant.
     if ctx.invoked_subcommand is None:
-        bash_scaffold(no_prompt=True)
+        bash_scaffold(prompt="DEFAULT")
 
 
 @app.command(name="bash")
-def bash_scaffold(no_prompt: bool = False):
+def bash_scaffold(prompt: str = "BASH"):
     """A bash assistant that can run commands and answer questions about the system."""
 
     import prompt_toolkit as pt
@@ -163,16 +164,6 @@ def bash_scaffold(no_prompt: bool = False):
     from prompt_toolkit.lexers import PygmentsLexer
     from pygments.lexers.shell import BashLexer
     from prompt_toolkit.key_binding import KeyBindings
-
-    SYSTEM_PROMPT = dedent(
-        f"""
-    You are being run in a scaffold on an archlinux machine running bash. You can access any file and program on the machine.
-    Your answers are concise. You don't ask the user before running a command, just run it. You assume most things that the user did not specify. When you need more info, you use cat, ls or pwd.
-    Don't provide explanations unless asked.
-    When you need to run a bash command, wrap it in {constants.BASH_START} and {constants.BASH_END} tags. Don't use backticks (```) to run commands.
-    """
-    ).strip()
-    # You will be shown the output of the command, but you cannot interact with it.
 
     BASH_CONSOLE = pt.PromptSession(
         message="run: ",
@@ -192,14 +183,19 @@ def bash_scaffold(no_prompt: bool = False):
         key_bindings=BINDINGS,
     )
 
-    messages = []
-    if no_prompt:
-        system = None
-    else:
-        system = SYSTEM_PROMPT
+    # Load pre-defined prompts.
+    with open(constants.SRC / "prompts.yaml") as f:
+        PROMPTS = yaml.safe_load(f)
+
+    if prompt:
+        system = PROMPTS.get(prompt, prompt)
 
         with style("system"):
-            print(SYSTEM_PROMPT)
+            print(system)
+    else:
+        system = None
+
+    messages = []
 
     last_command_result = ""
     while True:
@@ -229,6 +225,19 @@ def bash_scaffold(no_prompt: bool = False):
 
         # We do it at the end, because the user might have edited the command.
         messages.append({"role": "assistant", "content": answer})
+
+
+@app.command(name="prompts")
+def list_prompts():
+    """List the available prompts."""
+
+    with open(constants.PROMPTS_FILE) as f:
+        prompts = yaml.safe_load(f)
+
+    for name, prompt in prompts.items():
+        print(f"{name}:")
+        print(prompt)
+        print()
 
 
 @app.command(name="translate")
@@ -461,7 +470,7 @@ def web():
 def commit(
     max_cost: float = 0.02,
     commit_file: Path = None,
-    model: str = constants.CHEAP_BUT_GOOD,
+    model: str = constants.OPENAI_MODEL,
 ):
     """Generate a commit message for the current changes."""
 
