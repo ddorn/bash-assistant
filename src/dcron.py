@@ -160,7 +160,7 @@ def screenshot():
     SCREENSHOTS = utils.DATA / "screenshots"
     SCREENSHOTS.mkdir(exist_ok=True)
 
-    filename = datetime.now().strftime("%Y-%m-%d_%H-%M-%S.png")
+    filename = datetime.now().strftime("%Y-%m-%d_%H-%M-%S.webp")
     path = SCREENSHOTS / filename
 
     subprocess.check_call(["grim", str(path)])

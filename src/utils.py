@@ -70,12 +70,12 @@ def fmt_diff(diff: Iterator[str]) -> tuple[str, str]:
     return past, new
 
 
-def get_text_input(custom: str = "") -> str:
+def get_text_input(custom: str | None = "") -> str:
     """Get text input from the user, fallbacks to stdin if piped, or prompts the user."""
 
     import click
 
-    if 0 < len(custom) < 200 and Path(custom).is_file():
+    if custom and len(custom) < 200 and Path(custom).is_file():
         return Path(custom).read_text()
 
     if custom:
