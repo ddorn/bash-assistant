@@ -6,6 +6,7 @@ import base64
 import difflib
 import enum
 import io
+import json
 import os
 import re
 import subprocess
@@ -17,14 +18,25 @@ from pathlib import Path
 from random import choice
 from textwrap import dedent, indent
 from typing import Annotated, Literal
+import xml.etree.ElementTree as ET
 
 import openai
+import requests
 import rich
 import typer
 import yaml
 
 import constants
-from utils import ai_query, ai_stream, fmt_diff, get_text_input, ai_chat, print_join, soft_parse_xml
+from utils import (
+    ai_query,
+    ai_stream,
+    fmt_diff,
+    get_text_input,
+    ai_chat,
+    print_join,
+    soft_parse_xml,
+    confirm_action,
+)
 
 
 def run_suggested_command(command: str, bash_console) -> tuple[str, str]:
@@ -722,6 +734,100 @@ def timer(
             self.add_time(-60)
 
     TimerApp(total).run()
+
+
+@app.command(name="logseq")
+def to_logseq(url: str, logseq_dir: Path = Path("~/Documents/logseq").expanduser()):
+    """Download the given paper and convert it to a Logseq journal entry."""
+
+    # For Arxiv papers
+    if "arxiv" in url:
+        print("Using arXiv API to fetch the paper data...")
+        arxiv_id = url.split("/")[-1]
+        if arxiv_id.endswith(".pdf"):
+            arxiv_id = arxiv_id[:-4]
+        api_url = f"http://export.arxiv.org/api/query?id_list={arxiv_id}"
+        response = requests.get(api_url)
+        if response.status_code != 200:
+            raise Exception(f"Failed to fetch data from arXiv API: {response.status_code}")
+        data = response.content
+
+        root = ET.fromstring(data)
+        entry = root.find("{http://www.w3.org/2005/Atom}entry")
+        if entry is None:
+            raise Exception("No entry found in the arXiv data")
+
+        title = entry.find("{http://www.w3.org/2005/Atom}title").text.strip()
+        authors = [
+            author.find("{http://www.w3.org/2005/Atom}name").text
+            for author in entry.findall("{http://www.w3.org/2005/Atom}author")
+        ]
+        abstract = entry.find("{http://www.w3.org/2005/Atom}summary").text.strip()
+        published = entry.find("{http://www.w3.org/2005/Atom}published").text
+
+        data = {
+            "title": title,
+            "authors": authors,
+            "abstract": abstract,
+            "published": published,
+            "pdf": f"https://arxiv.org/pdf/{arxiv_id}.pdf",
+        }
+
+    elif "semanticscholar" in url:
+        print("Using Semantic Scholar API to fetch the paper data...")
+        id = url.split("/")[-1]
+        api_url = f"https://api.semanticscholar.org/v1/paper/{id}?fields=title,authors,abstract,arxivId,year"
+        response = requests.get(api_url)
+        if response.status_code != 200:
+            raise Exception(
+                f"Failed to fetch data from Semantic Scholar API: {response.status_code}"
+            )
+        data = response.json()
+
+        data = {
+            "title": data["title"],
+            "authors": [author["name"] for author in data["authors"]],
+            "abstract": data["abstract"],
+            "published": data["year"],
+            "pdf": f"https://arxiv.org/pdf/{data['arxivId']}.pdf",
+        }
+
+    else:
+        raise ValueError("Only arXiv and Semantic Scholar URLs are supported")
+
+    # Create the Logseq entry. One page, with metadata and the PDF.
+    file_name = data["title"]
+    entry_path = logseq_dir / "pages" / f"{file_name}.md"
+    pdf_path = logseq_dir / "assets" / f"{file_name}.pdf"
+    pdf_relative_to_entry = pdf_path.relative_to(entry_path.parent, walk_up=True)
+    highlight_file = "hls__" + "".join(c if c.isalnum() or c in "' " else "" for c in file_name)
+    entry = dedent(
+        f"""
+    url:: {url}
+    title:: {data['title']}
+    authors:: {', '.join(f'[[{author}]]' for author in data['authors'])}
+    published:: {data['published']}
+    file:: ![pdf]({pdf_relative_to_entry})
+
+    - **Abstract**: {data['abstract']}
+    - **Highlights**: """
+        + "{{embed [["
+        + highlight_file
+        + "]]}}"
+    ).strip()
+
+    if entry_path.exists() and not confirm_action(f"File {entry_path} already exists. Overwrite?"):
+        return
+    if pdf_path.exists() and not confirm_action(f"File {pdf_path} already exists. Overwrite?"):
+        return
+
+    print(f"🖊 Writting to {file_name} and {entry_path}")
+    entry_path.write_text(entry)
+    print(f"📄 Downloading PDF to {pdf_path}")
+    response = requests.get(data["pdf"])
+    pdf_path.write_bytes(response.content)
+
+    print(f"✅ Saved as [[{file_name}]] in Logseq.")
 
 
 from ynab import app as ynab_app
