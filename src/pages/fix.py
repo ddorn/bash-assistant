@@ -3,7 +3,6 @@ import difflib
 import re
 from textwrap import dedent
 import streamlit as st
-from streamlit.components.v1 import html
 
 from utils import ai_stream
 
@@ -100,7 +99,6 @@ def fmt_diff_toggles(diff: list[str]) -> str:
         .swapable {
             border: 1px solid;
             padding: 2px;
-            min-width: 20px;
             white-space: pre;
         }
         .original {
@@ -116,15 +114,14 @@ def fmt_diff_toggles(diff: list[str]) -> str:
             text-decoration-color: green;
         }
         .swapable-label {
-            display: inline-block;
-            cursor: grab;
+            display: inline;
         }
     </style>"""
     )
 
     template = """
 <input type="checkbox" style="display: none;" class="swaper" id={id}>
-<label for={id} style="swapable-label">
+<label for={id} class="swapable-label">
     <span class="swapable original">{content1}</span><span class="swapable new">{content2}</span>
 </label>"""
 
@@ -175,7 +172,8 @@ def fmt_diff_toggles(diff: list[str]) -> str:
 
 def split_words(text: str) -> list[str]:
     # Also split on newlines
-    words = re.findall(r"(\w+|\W+|\n+)", text.strip())
+    parts = re.findall(r"(\n+|[^\n]+)", text.strip())
+    words = [word for part in parts for word in re.findall(r"\S+|\s+", part)]
     return words
 
 
@@ -197,3 +195,6 @@ if corrected is not None:
     select_old = st.checkbox("Make old text selectable", value=False)
     colored = fmt_diff_html(diff, select_new=not select_old)
     st.html(colored)
+
+    st.header("Plain diff")
+    st.code("\n".join(diff), language="diff")

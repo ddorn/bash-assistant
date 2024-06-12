@@ -139,7 +139,7 @@ def ai_chat(
 def ai_stream(
     system: str | None,
     messages: list[dict[str, str]],
-    model: str = None,
+    model: str | None = None,
     confirm: float | None = None,
     **kwargs,
 ) -> Generator[str, None, None]:
