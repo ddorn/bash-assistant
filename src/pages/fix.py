@@ -140,18 +140,15 @@ def fmt_diff_toggles(diff: list[str]) -> str:
         elif kind == "?":
             continue
         elif kind == "-":
-            # if parts and isinstance(parts[-1], tuple):
-            #     if parts[-1][1] == "":
-            #         parts[-1] = (parts[-1][0] + word, "")
-            #     else:
-            #         parts.append((word, ""))
-            # else:
-            parts.append((word, ""))
+            if parts and isinstance(parts[-1], tuple):
+                if parts[-1][1] == "":
+                    parts[-1] = (parts[-1][0] + word, "")
+                else:
+                    parts.append((word, ""))
+            else:
+                parts.append((word, ""))
         elif kind == "+":
-            # if parts and isinstance(parts[-1], tuple):
-            #     parts[-1] = (parts[-1][0], word)
-            # else:
-            if parts and isinstance(parts[-1], tuple) and parts[-1][1] == "":
+            if parts and isinstance(parts[-1], tuple):
                 parts[-1] = (parts[-1][0], word)
             else:
                 parts.append(("", word))
@@ -160,10 +157,16 @@ def fmt_diff_toggles(diff: list[str]) -> str:
 
     # Escape the text
 
+    def fmt_part(part: str) -> str:
+        if not part:
+            return f'<span style="user-select: none">∅</span>'
+        else:
+            return part.replace("\n", '<span style="user-select: none">↵</span><br>')
+
     colored = start
     for i, part in enumerate(parts):
         if isinstance(part, tuple):
-            colored += template.format(id=i, content1=part[0], content2=part[1])
+            colored += template.format(id=i, content1=fmt_part(part[0]), content2=fmt_part(part[1]))
         else:
             colored += f"<span>{part}</span>"
 
@@ -195,6 +198,3 @@ if corrected is not None:
     select_old = st.checkbox("Make old text selectable", value=False)
     colored = fmt_diff_html(diff, select_new=not select_old)
     st.html(colored)
-
-    st.header("Plain diff")
-    st.code("\n".join(diff), language="diff")
