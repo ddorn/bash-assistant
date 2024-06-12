@@ -12,26 +12,26 @@ with st.container(border=True):
 
     system_prompts = {
         "Default": """
-    You are given a text and you need to fix the language (typos, grammar, ...).
-    If needed, fix also the formatting and ensure the text is gender neutral.
-    Output directly the corrected text, without any comment.
-    """.strip(),
+            You are given a text and you need to fix the language (typos, grammar, ...).
+            If needed, fix the formatting and, when relevant, ensure the text is inclusive.
+            Output directly the corrected text, without any comment.
+            """,
         "Heavy": """
-    You are given a text and you need to fix the language (typos, grammar, ...).
-    If needed, fix also the formatting and ensure the text is gender neutral.
-    "Please reformulate the text when needed, use better words and make it more clear when possible.",
-    Output directly the corrected text, without any comment.
-    """.strip(),
+            You are given a text and you need to fix the language (typos, grammar, ...).
+            If needed, fix the formatting and, when relevant, ensure the text is inclusive.
+            Please also reformulate the text when needed, use better words and make it more clear.
+            Output directly the corrected text, without any comment.
+            """,
         "Custom": "",
     }
 
     # Allow for custom prompts also
-    system_name = st.selectbox("System Prompt", list(system_prompts.keys()))
+    system_name = st.radio("System Prompt", list(system_prompts.keys()), horizontal=True)
     if system_name == "Custom":
-        system = st.text_area("Custom prompt", value=system_prompts["Default"])
+        system = st.text_area("Custom prompt", value=dedent(system_prompts["Default"]).strip())
     else:
-        system = system_prompts[system_name]
-        st.markdown(system)
+        system = dedent(system_prompts[system_name]).strip()
+        st.code(system, language="text")
 
     lets_gooo = st.button("Fix", type="primary")
 
@@ -49,49 +49,17 @@ else:
     corrected = cache().get((text, system))
 
 
-def fmt_diff_html(diff: list[str], select_new: bool) -> str:
-    no_select = "user-select: none; color: gray;"
-
-    colored = ""
-    for word in diff:
-        kind = escape(word[0])
-        word = word[2:]
-
-        if kind == " ":
-            colored += f"<span>{word}</span>"
-            continue
-        elif kind == "?":
-            continue
-
-        colored += "<span style='"
-
-        if kind == "-":
-            if select_new:
-                colored += no_select
-            else:
-                colored += "color: red;"
-        elif kind == "+":
-            if not select_new:
-                colored += no_select
-            else:
-                colored += "color: green;"
-        else:
-            continue
-        colored += "'>" + word + "</span>"
-
-    return colored.replace("\n", "<br>")
-
-
-def fmt_diff_toggles(diff: list[str]) -> str:
-    start = dedent(
-        """
+def fmt_diff_toggles(diff: list[str], start_with_old_selected: bool = False) -> str:
+    style = (
+        dedent(
+            """
     <style>
-        .swaper:checked + label .new {
+        .swaper:checked + label INITIAL_SELECTED {
             user-select: none;
             color: gray;
             border: 1px dashed;
         }
-        .swaper:not(:checked) + label .original {
+        .swaper:not(:checked) + label INITIAL_NOT_SELECTED {
             user-select: none;
             color: gray;
             border: 1px dashed;
@@ -116,13 +84,23 @@ def fmt_diff_toggles(diff: list[str]) -> str:
         .swapable-label {
             display: inline;
         }
+        .whitespace-hint {
+            user-select: none;
+            color: gray;
+        }
+        .diff {
+            white-space: pre-wrap;
+        }
     </style>"""
+        )
+        .replace("INITIAL_SELECTED", ".original" if start_with_old_selected else ".new")
+        .replace("INITIAL_NOT_SELECTED", ".new" if start_with_old_selected else ".original")
+        .strip()
     )
 
-    template = """
-<input type="checkbox" style="display: none;" class="swaper" id={id}>
-<label for={id} class="swapable-label">
-    <span class="swapable original">{content1}</span><span class="swapable new">{content2}</span>
+    template = """<input type="checkbox" style="display: none;" class="swaper" id={id}>\
+<label for={id} class="swapable-label">\
+<span class="swapable original">{content1}</span><span class="swapable new">{content2}</span>\
 </label>"""
 
     # Diff always outputs "- old" then "+ new" word, but both can be empty
@@ -130,7 +108,7 @@ def fmt_diff_toggles(diff: list[str]) -> str:
 
     for word in diff:
         kind = word[0]
-        word = escape(word[2:])
+        word = word[2:]
 
         if kind == " ":
             if parts and isinstance(parts[-1], str):
@@ -159,18 +137,19 @@ def fmt_diff_toggles(diff: list[str]) -> str:
 
     def fmt_part(part: str) -> str:
         if not part:
-            return f'<span style="user-select: none">∅</span>'
+            return f'<span class="whitespace-hint">∅</span>'
         else:
-            return part.replace("\n", '<span style="user-select: none">↵</span><br>')
+            return part.replace("\n", '<span class="whitespace-hint">↵</span><br>')
 
-    colored = start
+    colored = ""
     for i, part in enumerate(parts):
         if isinstance(part, tuple):
             colored += template.format(id=i, content1=fmt_part(part[0]), content2=fmt_part(part[1]))
         else:
             colored += f"<span>{part}</span>"
+            # colored += f"<span>{part.replace('\n', '<br>')}</span>"
 
-    return f"<p>{colored}</p>"
+    return f'<p class="diff">{style}{colored}</p>'
 
 
 def split_words(text: str) -> list[str]:
@@ -181,20 +160,19 @@ def split_words(text: str) -> list[str]:
 
 
 if corrected is not None:
-    st.write(
-        "*:green[Green text] is the corrected version, :red[red text] is the original version.*"
-    )
-
     # Compute the difference between the two texts
     words1 = split_words(text)
     words2 = split_words(corrected)
 
     diff = list(difflib.ndiff(words1, words2))
 
-    st.header("Word level toggles")
-    st.html(fmt_diff_toggles(diff))
+    st.header("Corrected text")
+    options = [":red[Original text]", ":green[New suggestions]"]
+    selected = st.radio("Select all", options, index=1, horizontal=True)
 
-    st.header("Global toggle")
-    select_old = st.checkbox("Make old text selectable", value=False)
-    colored = fmt_diff_html(diff, select_new=not select_old)
-    st.html(colored)
+    with st.container(border=True):
+        st.html(fmt_diff_toggles(diff, start_with_old_selected=selected == options[0]))
+
+    # st.write("*This text was generated by an AI model. You **ALWAYS** need to review it.*")
+    # Nicer
+    st.warning("This text was written by a generative AI model. You **ALWAYS** need to review it.")
