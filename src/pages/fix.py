@@ -49,7 +49,79 @@ else:
     corrected = cache().get((text, system))
 
 
+def common_prefix(str1, str2):
+    min_length = min(len(str1), len(str2))
+    for i in range(min_length):
+        if str1[i] != str2[i]:
+            return str1[:i]
+    return str1[:min_length]
+
+
+def common_suffix(str1, str2):
+    min_length = min(len(str1), len(str2))
+    for i in range(1, min_length + 1):
+        if str1[-i] != str2[-i]:
+            return str1[-i + 1 :] if i > 1 else ""
+    return str1[-min_length:]
+
+
+def split_words(text: str) -> list[str]:
+    # Split on newlines, while keeping them
+    parts = re.findall(r"(\n+|[^\n]+)", text.strip())
+    # Split on tokens, i.e. space followed by non-space
+    parts = [word for part in parts for word in re.findall(r"^\S+|\s+\S+|\s+$", part)]
+    # Split on punctuation
+    parts = [word for part in parts for word in re.findall(r"[\w\s]+|[^\w\s]+", part)]
+    return parts
+
+
 def fmt_diff_toggles(diff: list[str], start_with_old_selected: bool = False) -> str:
+
+    # Diff always outputs "- old" then "+ new" word, but both can be empty
+    parts: list[str | tuple[str, str]] = []
+
+    for word in diff:
+        kind = word[0]
+        word = word[2:]
+
+        if kind == " ":
+            if parts and isinstance(parts[-1], str):
+                parts[-1] += word
+            else:
+                parts.append(word)
+        elif kind == "?":
+            continue
+        elif kind == "-":
+            if parts and isinstance(parts[-1], tuple):
+                parts[-1] = (parts[-1][0] + word, parts[-1][1])
+            else:
+                parts.append((word, ""))
+        elif kind == "+":
+            if parts and isinstance(parts[-1], tuple):
+                parts[-1] = (parts[-1][0], parts[-1][1] + word)
+            else:
+                parts.append(("", word))
+        else:
+            raise ValueError(f"Unknown kind: {kind}")
+
+    # Simplify the diff by cleaning (old, new) that start or end with a common substring
+    new_parts = []
+    for part in parts:
+        if isinstance(part, tuple):
+            old, new = part
+            prefix = common_prefix(old, new)
+            suffix = common_suffix(old, new)
+            old = old[len(prefix) : -len(suffix) if suffix else None]
+            new = new[len(prefix) : -len(suffix) if suffix else None]
+            if prefix:
+                new_parts.append(prefix)
+            new_parts.append((old, new))
+            if suffix:
+                new_parts.append(suffix)
+        else:
+            new_parts.append(part)
+    parts = new_parts
+
     style = (
         dedent(
             """
@@ -57,30 +129,39 @@ def fmt_diff_toggles(diff: list[str], start_with_old_selected: bool = False) -> 
         .swaper:checked + label INITIAL_SELECTED {
             user-select: none;
             color: gray;
-            border: 1px dashed;
+            border-style: dashed;
+            border-color: gray;
         }
         .swaper:not(:checked) + label INITIAL_NOT_SELECTED {
             user-select: none;
             color: gray;
-            border: 1px dashed;
+            border-style: dashed;
+            border-color: gray;
         }
         .swapable {
-            border: 1px solid;
             padding: 2px;
             white-space: pre;
+            border: 1px solid;
+        }
+        .swapable:first-child {
+            border-top-left-radius: 5px;
+            border-bottom-left-radius: 5px;
+        }
+        .swapable:last-child {
+            border-top-right-radius: 5px;
+            border-bottom-right-radius: 5px;
         }
         .original {
             border-color: red;
             background-color: rgba(255, 0, 0, 0.05);
-            border-radius: 5px 0 0 5px;
             text-decoration-color: red;
         }
         .new {
             border-color: green;
             background-color: rgba(0, 255, 0, 0.05);
-            border-radius: 0 5px 5px 0;
             text-decoration-color: green;
         }
+
         .swapable-label {
             display: inline;
         }
@@ -100,40 +181,10 @@ def fmt_diff_toggles(diff: list[str], start_with_old_selected: bool = False) -> 
 
     template = """<input type="checkbox" style="display: none;" class="swaper" id={id}>\
 <label for={id} class="swapable-label">\
-<span class="swapable original">{content1}</span><span class="swapable new">{content2}</span>\
+{spans}\
 </label>"""
-
-    # Diff always outputs "- old" then "+ new" word, but both can be empty
-    parts: list[str | tuple[str, str]] = []
-
-    for word in diff:
-        kind = word[0]
-        word = word[2:]
-
-        if kind == " ":
-            if parts and isinstance(parts[-1], str):
-                parts[-1] += word
-            else:
-                parts.append(word)
-        elif kind == "?":
-            continue
-        elif kind == "-":
-            if parts and isinstance(parts[-1], tuple):
-                if parts[-1][1] == "":
-                    parts[-1] = (parts[-1][0] + word, "")
-                else:
-                    parts.append((word, ""))
-            else:
-                parts.append((word, ""))
-        elif kind == "+":
-            if parts and isinstance(parts[-1], tuple):
-                parts[-1] = (parts[-1][0], word)
-            else:
-                parts.append(("", word))
-        else:
-            raise ValueError(f"Unknown kind: {kind}")
-
-    # Escape the text
+    span_orignal = '<span class="swapable original">{content}</span>'
+    span_new = '<span class="swapable new">{content}</span>'
 
     def fmt_part(part: str) -> str:
         if not part:
@@ -144,19 +195,18 @@ def fmt_diff_toggles(diff: list[str], start_with_old_selected: bool = False) -> 
     colored = ""
     for i, part in enumerate(parts):
         if isinstance(part, tuple):
-            colored += template.format(id=i, content1=fmt_part(part[0]), content2=fmt_part(part[1]))
+            spans = []
+            if part[0]:
+                spans.append(span_orignal.format(content=escape(part[0])))
+            if part[1]:
+                spans.append(span_new.format(content=escape(part[1])))
+            spans = "".join(spans)
+            colored += template.format(id=i, spans=spans)
         else:
             colored += f"<span>{part}</span>"
             # colored += f"<span>{part.replace('\n', '<br>')}</span>"
 
     return f'<p class="diff">{style}{colored}</p>'
-
-
-def split_words(text: str) -> list[str]:
-    # Also split on newlines
-    parts = re.findall(r"(\n+|[^\n]+)", text.strip())
-    words = [word for part in parts for word in re.findall(r"\S+|\s+", part)]
-    return words
 
 
 if corrected is not None:
