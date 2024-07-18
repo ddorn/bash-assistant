@@ -264,7 +264,7 @@ def sesterce(input_file: Path = None, no_confirm: bool = False, since: str = "la
             create_split_0_transaction(row["Paid for Diego"], row["Title"], row["Date"], no_confirm)
         else:
             print(
-                f"🙈 Did not create entry for my transaction on {row["Title"]}, even if missing. [not implemented]"
+                f"🙈 Did not create entry for my transaction on {row["Title"]} ({row['Date']}), even if missing. [not implemented]"
             )
 
     # Save the last import date

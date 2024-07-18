@@ -72,11 +72,14 @@ def run_suggested_command(command: str, bash_console) -> tuple[str, str]:
 
 
 def get_response(
-    system: str | None, messages: list[dict], end_after: str = constants.BASH_END
+    system: str | None,
+    messages: list[dict],
+    end_after: str = constants.BASH_END,
+    model: str = constants.OPENAI_MODEL,
 ) -> str:
     with style("assistant"):
         answer = ""
-        for text in ai_stream(system, messages):
+        for text in ai_stream(system, messages, model=model):
             answer += text
             print(text, end="", flush=True)
             if end_after in answer:
@@ -167,7 +170,7 @@ def callback(ctx: typer.Context, anthropic: bool = False):
 
 
 @app.command(name="bash")
-def bash_scaffold(prompt: str = "BASH"):
+def bash_scaffold(prompt: str = "BASH", model: str = "gpt-4-turbo"):
     """A bash assistant that can run commands and answer questions about the system."""
 
     import prompt_toolkit as pt
@@ -228,9 +231,8 @@ def bash_scaffold(prompt: str = "BASH"):
 
             # Replace the command with the one that was actually run.
             answer = answer[:start] + command + answer[end:]
-            edited = typer.edit(output)
-            if edited is not None:
-                output = edited
+            # edited = typer.edit(output) if edited is not None:
+            #     output = edited
             last_command_result = f"\n<response>{output}</response>"
         else:
             last_command_result = ""
@@ -485,6 +487,18 @@ def commit(
     model: str = constants.OPENAI_MODEL,
 ):
     """Generate a commit message for the current changes."""
+
+    if commit_file and commit_file.exists():
+        # Check if there is already a commit message in the file.
+        message = commit_file.read_text()
+        message = message.partition("-------- >8 --------")[0]
+        message = "\n".join(
+            line for line in message.splitlines() if not line.strip().startswith("#")
+        ).strip()
+
+        if message:
+            print("❌ There is already a commit message.")
+            return
 
     # We probably want to see the status before committing.
     subprocess.run(["git", "status"])

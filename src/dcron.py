@@ -1,5 +1,6 @@
 from datetime import datetime
 from pathlib import Path
+import random
 import re
 import subprocess
 from textwrap import dedent
@@ -136,7 +137,9 @@ def go_to_sleep(
         minutes = (shutdown - now) // 60
         utils.notify("Go to sleep!", f"Shutting down in {minutes} minutes.")
     elif is_in_order(shutdown, now, end):
-        if snooze_file.exists():
+        if snooze_file.exists() and (
+            snooze_file.read_text().strip() == "SKIP" or random.random() < 0.8
+        ):
             snooze_file.unlink()
             utils.notify("You do you.", "Remember you are happier when you sleep enough 😘🧡💜")
         else:
@@ -155,7 +158,7 @@ def go_to_sleep(
         pass
 
 
-@every(minutes=1)
+# @every(minutes=1)
 def screenshot():
     SCREENSHOTS = utils.DATA / "screenshots"
     SCREENSHOTS.mkdir(exist_ok=True)
