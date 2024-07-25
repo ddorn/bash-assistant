@@ -7,8 +7,10 @@ import streamlit as st
 from utils import ai_stream
 
 
-with st.container(border=True):
-    text = st.text_area("Text to fix")
+with st.form(key="fix"):
+    text = st.text_area(
+        "Text to fix",
+    )
 
     system_prompts = {
         "Default": """
@@ -33,7 +35,9 @@ with st.container(border=True):
         system = dedent(system_prompts[system_name]).strip()
         st.code(system, language="text")
 
-    lets_gooo = st.button("Fix", type="primary")
+    # lets_gooo = st.button("Fix", type="primary")
+
+    lets_gooo = st.form_submit_button("Fix", type="primary")
 
 
 @st.cache_resource()
