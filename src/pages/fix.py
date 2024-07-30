@@ -63,6 +63,8 @@ def common_prefix(str1, str2):
 
 def common_suffix(str1, str2):
     min_length = min(len(str1), len(str2))
+    if min_length == 0:
+        return ""
     for i in range(1, min_length + 1):
         if str1[-i] != str2[-i]:
             return str1[-i + 1 :] if i > 1 else ""
