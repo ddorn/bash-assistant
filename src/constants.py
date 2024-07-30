@@ -6,15 +6,17 @@ OPENAI_MODEL = "gpt-4o"
 ANTHROPIC_MODEL = "claude-3-opus-20240229"
 ANTHROPIC_MODEL = "claude-3-sonnet-20240229"
 ANTHROPIC_MODEL = "claude-2.1"
-CHEAPEST_MODEL = "claude-3-haiku-20240229"
-CHEAP_BUT_GOOD = "gpt-3.5-turbo"
+CHEAPEST_MODEL = "gpt-4o-mini"
+CHEAP_BUT_GOOD = "gpt-4o-mini"
 MODELS_COSTS = {
     "gpt-3.5-turbo": (0.5, 1.5),
     "gpt-4-turbo": (10, 30),
     "gpt-4o": (5, 15),
+    "gpt-4o-mini": (0.15, 0.6),
     "claude-3-opus-20240229": (15, 75),
     "claude-3-sonnet-20240229": (3, 15),
     "claude-3-haiku-20240229": (0.25, 1.25),
+    "claude-3-5-sonnet-20240620": (3, 15),
 }
 MODELS = list(MODELS_COSTS)
 USE_OPENAI = True

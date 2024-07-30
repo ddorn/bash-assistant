@@ -228,3 +228,5 @@ if corrected is not None:
         st.html(fmt_diff_toggles(diff, start_with_old_selected=selected == options[0]))
 
     st.warning("This text was written by a generative AI model. You **ALWAYS** need to review it.")
+
+    st.expander("LLM version of the text").text(corrected)
