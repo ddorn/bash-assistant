@@ -213,6 +213,13 @@ def fmt_diff_toggles(diff: list[str], start_with_old_selected: bool = False) -> 
     return f'<p class="diff">{style}{colored}</p>'
 
 
+dev_mode = st.sidebar.toggle("Developer mode")
+if dev_mode:
+    text = st.text_area("Text to fix", text, height=400)
+    corrected = st.text_area("Corrected text", corrected, height=400)
+    st.write(corrected)
+
+
 if corrected is not None:
     # Compute the difference between the two texts
     words1 = split_words(text)
@@ -230,3 +237,8 @@ if corrected is not None:
     st.warning("This text was written by a generative AI model. You **ALWAYS** need to review it.")
 
     st.expander("LLM version of the text").text(corrected)
+
+
+if dev_mode:
+    # st.expander("Raw diff").code("\n".join(diff), language="diff")
+    st.expander("Raw diff").write(diff)
