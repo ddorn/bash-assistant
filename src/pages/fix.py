@@ -196,21 +196,20 @@ def fmt_diff_toggles(diff: list[str], start_with_old_selected: bool = False) -> 
         if not part:
             return f'<span class="whitespace-hint">∅</span>'
         else:
-            return part.replace("\n", '<span class="whitespace-hint">↵</span><br>')
+            return escape(part).replace("\n", '<span class="whitespace-hint">↵</span><br>')
 
     colored = ""
     for i, part in enumerate(parts):
         if isinstance(part, tuple):
             spans = []
             if part[0]:
-                spans.append(span_orignal.format(content=escape(part[0])))
+                spans.append(span_orignal.format(content=fmt_part(part[0])))
             if part[1]:
-                spans.append(span_new.format(content=escape(part[1])))
+                spans.append(span_new.format(content=fmt_part(part[1])))
             spans = "".join(spans)
             colored += template.format(id=i, spans=spans)
         else:
-            colored += f"<span>{part}</span>"
-            # colored += f"<span>{part.replace('\n', '<br>')}</span>"
+            colored += f"<span>{escape(part)}</span>"
 
     return f'<p class="diff">{style}{colored}</p>'
 
