@@ -5,13 +5,14 @@ from pathlib import Path
 
 import requests
 from typer import Typer
+from rich import print as rprint
 
 import config
 
 
 BASE = "https://api.ynab.com/v1/budgets/last-used/transactions"
 HEADERS = {"Authorization": f"Bearer {config.YNAB_TOKEN}"}
-
+SESTERCE_TRANSACTION_URL = "https://app.sesterce.io/groups/txerrkyw/spendings/{id}"
 
 app = Typer()
 
@@ -48,7 +49,9 @@ def match_sesterce_ynab(sesterce_row, ynab_transactions):
     return None
 
 
-def create_split_0_transaction(amount: float, payee_name: str, date: datetime, no_confirm: bool):
+def create_split_0_transaction(
+    amount: float, payee_name: str, date: datetime, no_confirm: bool, id: str
+):
     payload = dict(
         account_id="d6585d76-0931-4930-bbc2-2e3a4c97393b",  # "Not my transaction" category
         date=date.strftime("%Y-%m-%d"),
@@ -65,8 +68,11 @@ def create_split_0_transaction(amount: float, payee_name: str, date: datetime, n
     )
 
     if not no_confirm:
-        print(f"🤔 Create split transaction?")
-        print(f"    Sesterce: {payee_name} - {date} - ±{amount}")
+        print("🤔 Create split transaction in YNAB?")
+        rprint(f"   [bold orange3]{payee_name}[/] - {date} - ±{amount}")
+        link = SESTERCE_TRANSACTION_URL.format(id=id)
+        rprint(f"   🔗 [link={link} u]Sesterce url")
+
         from InquirerPy import inquirer
 
         if not inquirer.confirm("Continue?", default=True).execute():
@@ -137,9 +143,12 @@ def sesterce_api_to_df(data: dict):
 
     rows = []
     for spending in spendings:
+        # Example: {'id': '1714828970474_WEB-R6GLQ120ZS67U7MH_SPENDING_bsr4', 'description': 'Migration from Tricount', 'date': '20240504', 'financed': [{'contributor': '1714827951917_WEB-R6GLQ120ZS67U7MH_CONTRIBUTOR_gpsk', 'type': 'fixed', 'value': 36392}], 'spent': [{'contributor': '1714827393333_WEB-R6GLQ120ZS67U7MH_CONTRIBUTOR_v1lc', 'type': 'part', 'value': 100}, {'contributor': '1714827951917_WEB-R6GLQ120ZS67U7MH_CONTRIBUTOR_gpsk', 'type': 'part', 'value': 0}, {'contributor': '1714827388259_WEB-R6GLQ120ZS67U7MH_CONTRIBUTOR_i5d4', 'type': 'fixed', 'value': 8530}, {'contributor': '1714827388259_WEB-R6GLQ120ZS67U7MH_CONTRIBUTOR_i5d4', 'type': 'part', 'value': 0}], 'images_id': [], 'created_at': '2024-05-04T13:22:50+00:00', 'updated_at': '2024-05-04T13:22:50+00:00'}
+
         row = {
             "Date": spending["date"],
             "Title": spending["description"],
+            "ID": spending["id"],
         }
         # Initialize the columns
         for name in contributors.values():
@@ -251,20 +260,26 @@ def sesterce(input_file: Path = None, no_confirm: bool = False, since: str = "la
 
     for i, row in df.iterrows():
         if row["Paid by Diego"] == 0 and row["Paid for Diego"] == 0:
-            print(f"🤔 Skipping transaction {row['Title']} with no amount for Diego")
+            rprint(
+                f"🤔 Skipping transaction [bold orange3]{row['Title']}[/] with no amount for Diego"
+            )
             continue
 
         match = match_sesterce_ynab(row, transactions)
 
         if match and match["subtransactions"]:
-            print(f"👌 Transaction for {row['Title']} already present and split")
+            rprint(f"👌 Transaction for [bold orange3]{row['Title']}[/] already present and split")
         elif match:
             add_split_to_my_transaction(match, row, no_confirm)
         elif row["Paid by Diego"] == 0:
-            create_split_0_transaction(row["Paid for Diego"], row["Title"], row["Date"], no_confirm)
+            create_split_0_transaction(
+                row["Paid for Diego"], row["Title"], row["Date"], no_confirm, row["ID"]
+            )
         else:
-            print(
-                f"🙈 Did not create entry for my transaction on {row["Title"]} ({row['Date']}), even if missing. [not implemented]"
+            link = SESTERCE_TRANSACTION_URL.format(id=row["ID"])
+            rprint(
+                f"🙈 Did not create entry for my transaction (present [u gray link={link}]in sesterce[/], not ynab) "
+                f"on [bold orange3]{row["Title"]}[/] ({row['Date']}), even if missing. [not implemented]"
             )
 
     # Save the last import date
