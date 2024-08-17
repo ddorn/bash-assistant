@@ -166,11 +166,11 @@ def callback(ctx: typer.Context, anthropic: bool = False):
 
     # If no command is given, run the bash assistant.
     if ctx.invoked_subcommand is None:
-        bash_scaffold(prompt="DEFAULT")
+        bash_scaffold()
 
 
 @app.command(name="bash")
-def bash_scaffold(prompt: str = "BASH", model: str = "gpt-4-turbo"):
+def bash_scaffold(model: str = "gpt-4-turbo"):
     """A bash assistant that can run commands and answer questions about the system."""
 
     import prompt_toolkit as pt
@@ -202,9 +202,19 @@ def bash_scaffold(prompt: str = "BASH", model: str = "gpt-4-turbo"):
     with open(constants.SRC / "prompts.yaml") as f:
         PROMPTS = yaml.safe_load(f)
 
-    if prompt:
-        system = PROMPTS.get(prompt, prompt)
+    from InquirerPy import inquirer
+    from InquirerPy.base.control import Choice
+    from InquirerPy.separator import Separator
 
+    prompt = inquirer.fuzzy(
+        message="Select a prompt",
+        choices=[
+            *PROMPTS,
+        ],
+    ).execute()
+    system = PROMPTS.get(prompt, prompt)
+
+    if system:
         with style("system"):
             print(system)
     else:
