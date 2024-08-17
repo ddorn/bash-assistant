@@ -17,6 +17,17 @@ SESTERCE_TRANSACTION_URL = "https://app.sesterce.io/groups/txerrkyw/spendings/{i
 app = Typer()
 
 
+def fmt_transaction(row):
+    title = row["Title"]
+    date = row["Date"].strftime("%Y-%m-%d")
+    url = SESTERCE_TRANSACTION_URL.format(id=row["ID"])
+
+    total = sum(val for key, val in row.items() if key.startswith("Paid for"))
+    title = f"[link={url}]{title}[/]"
+
+    return f"[bold orange3]{title}[/] ([green]{total:.2f}[/]💶, {date})"
+
+
 def is_same(sesterce_row, ynab_transaction):
     # Check less than 3 days appart
     date = sesterce_row["Date"]
@@ -50,7 +61,11 @@ def match_sesterce_ynab(sesterce_row, ynab_transactions):
 
 
 def create_split_0_transaction(
-    amount: float, payee_name: str, date: datetime, no_confirm: bool, id: str
+    amount: float,
+    payee_name: str,
+    date: datetime,
+    no_confirm: bool,
+    row,
 ):
     payload = dict(
         account_id="d6585d76-0931-4930-bbc2-2e3a4c97393b",  # "Not my transaction" category
@@ -68,10 +83,8 @@ def create_split_0_transaction(
     )
 
     if not no_confirm:
-        print("🤔 Create split transaction in YNAB?")
-        rprint(f"   [bold orange3]{payee_name}[/] - {date} - ±{amount}")
-        link = SESTERCE_TRANSACTION_URL.format(id=id)
-        rprint(f"   🔗 [link={link} u]Sesterce url")
+        rprint(f"🤔 Create split transaction in YNAB? {fmt_transaction(row)}")
+        rprint(f"   In YNAB, 0 transaction with splits: ±{amount}")
 
         from InquirerPy import inquirer
 
@@ -260,26 +273,27 @@ def sesterce(input_file: Path = None, no_confirm: bool = False, since: str = "la
 
     for i, row in df.iterrows():
         if row["Paid by Diego"] == 0 and row["Paid for Diego"] == 0:
-            rprint(
-                f"🤔 Skipping transaction [bold orange3]{row['Title']}[/] with no amount for Diego"
-            )
+            rprint(f"🤔 Skipping transaction {fmt_transaction(row)} with no amount for Diego")
             continue
 
         match = match_sesterce_ynab(row, transactions)
 
         if match and match["subtransactions"]:
-            rprint(f"👌 Transaction for [bold orange3]{row['Title']}[/] already present and split")
+            rprint(f"👌 Transaction for {fmt_transaction(row)} already present and split")
         elif match:
             add_split_to_my_transaction(match, row, no_confirm)
         elif row["Paid by Diego"] == 0:
             create_split_0_transaction(
-                row["Paid for Diego"], row["Title"], row["Date"], no_confirm, row["ID"]
+                row["Paid for Diego"],
+                row["Title"],
+                row["Date"],
+                no_confirm,
+                row,
             )
         else:
-            link = SESTERCE_TRANSACTION_URL.format(id=row["ID"])
             rprint(
-                f"🙈 Did not create entry for my transaction (present [u gray link={link}]in sesterce[/], not ynab) "
-                f"on [bold orange3]{row["Title"]}[/] ({row['Date']}), even if missing. [not implemented]"
+                f"🙈 Did not create entry for my transaction (present in sesterce, not ynab) "
+                f"on {fmt_transaction(row)}, even if missing. [not implemented]"
             )
 
     # Save the last import date
