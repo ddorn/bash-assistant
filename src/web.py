@@ -1,4 +1,4 @@
 import streamlit as st
 
 
-st.switch_page("pages/bai_web.py")
+st.switch_page("pages/fix.py")

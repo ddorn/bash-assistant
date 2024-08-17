@@ -17,7 +17,7 @@ class Dcron:
 
     def __init__(self):
         try:
-            self.calls = json.loads(CALLS_FILE.read_text())
+            self.calls = json.loads(CALLS_FILE.read_text() or "{}")
         except FileNotFoundError:
             self.calls = {}
 
