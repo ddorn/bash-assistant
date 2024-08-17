@@ -107,44 +107,6 @@ def style(kind: Literal["system", "assistant", "response"]):
     print(constants.STYLE_END, end="")
 
 
-RECORDING = None
-
-
-def get_audio_input(event):
-    """Get audio input from the user and add it to the prompt.
-
-    The first call starts recording, the second call stops it and adds the transcript to the prompt.
-    """
-    global RECORDING
-    msg = "🎤 Recording... press Ctrl+A to stop"
-
-    if RECORDING is None:
-        # Show that we are recording.
-        event.current_buffer.insert_text(msg)
-        # Run in parallel to avoid blocking the main thread.
-
-        proc = subprocess.Popen(
-            "ffmpeg -f alsa -i default -acodec libmp3lame -ab 128k -y temp.mp3",
-            shell=True,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-        RECORDING = proc
-        return
-
-    RECORDING.terminate()
-    RECORDING.wait()
-    RECORDING = None
-
-    transcript = openai.audio.transcriptions.create(model="whisper-1", file=open("temp.mp3", "rb"))
-    os.remove("temp.mp3")
-
-    # Remove the recording message.
-    event.current_buffer.delete_before_cursor(len(msg))
-    # Add the transcript to the prompt.
-    event.current_buffer.insert_text(transcript.text)
-
-
 # --------------------- CLI --------------------- #
 
 
@@ -188,14 +150,11 @@ def bash_scaffold(model: str = "gpt-4-turbo"):
         lexer=PygmentsLexer(BashLexer),
     )
 
-    BINDINGS = KeyBindings()
-    BINDINGS.add("c-a")(get_audio_input)
     PROMPTS_CONSOLE = pt.PromptSession(
         message="> ",
         history=FileHistory(constants.CACHE_DIR / "history.txt"),
         auto_suggest=AutoSuggestFromHistory(),
         vi_mode=constants.VI_MODE,
-        key_bindings=BINDINGS,
     )
 
     # Load pre-defined prompts.
