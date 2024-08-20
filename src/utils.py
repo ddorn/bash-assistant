@@ -97,7 +97,11 @@ anthropic_client = anthropic.Client(api_key=config.ANTHROPIC_API_KEY)
 
 
 def ai_chat(
-    system: str | None, messages: list[dict[str, str]], model: str = None, confirm: bool = False
+    system: str | None,
+    messages: list[dict[str, str]],
+    model: str = None,
+    confirm: bool = False,
+    **kwargs,
 ) -> str:
     """Chat with the AI using the given messages."""
 
@@ -113,6 +117,9 @@ def ai_chat(
         if not confirm_action(f"{model}: {estimation}. Confirm?"):
             return "Aborted."
 
+    kwargs.setdefault("temperature", 0.2)
+    kwargs.setdefault("max_tokens", 1000)
+
     if "claude" in model:
         # System message is a kwarg
         if system:
@@ -120,18 +127,16 @@ def ai_chat(
 
         message = anthropic_client.messages.create(
             model=constants.ANTHROPIC_MODEL,
-            max_tokens=1000,
-            temperature=0.2,
             system=system,
             messages=messages,
+            **kwargs,
         )
         return message.content[0].text
     else:
         response = openai.chat.completions.create(
             model=constants.OPENAI_MODEL,
-            max_tokens=1000,
-            temperature=0.2,
             messages=messages,
+            **kwargs,
         )
         return response.choices[0].message.content
 

@@ -10,6 +10,8 @@ from src import utils, constants
 DATA = utils.DATA / "chats"
 DATA.mkdir(exist_ok=True, parents=True)
 
+DEFAULT_NAME = "Untitled"
+
 
 def approx_text_height(text: str) -> int:
     height = 0
@@ -69,11 +71,11 @@ class Chat:
         if model is None:
             content = "new message!"
         else:
-            content = st.write_stream(
-                utils.ai_stream(
-                    *self.preprocess_messages(up_to=regenerate_idx), **GENERATION_ARGS.__dict__
-                )
-            )
+            messages = self.preprocess_messages(up_to=regenerate_idx)
+            content = st.write_stream(utils.ai_stream(*messages, **GENERATION_ARGS.__dict__))
+
+            if self.name == DEFAULT_NAME:
+                self.generate_name()
 
         if regenerate_idx is not None:
             return self.edit(regenerate_idx, content)
@@ -82,16 +84,45 @@ class Chat:
         self.messages.append(dict(role="user", content=""))
         self.save()
 
+    def generate_name(self):
+        system, messages = self.preprocess_messages()
+        start = ""
+        if system is not None:
+            start += system + "\n\n"
+        if messages:
+            start += messages[0]["content"]
+
+        system = (
+            "Generate a 2-4 word title for the conversation starting below. Output only 2-4 words.\n"
+            'Good examples include: "Pygame engine name", "Draft paper intro", "Write Exif with python", "Mail Ben talk"'
+        )
+
+        self.name = utils.ai_chat(
+            system=system,
+            messages=[
+                dict(role="user", content=start),
+                dict(role="system", content=system.replace("below", "above")),
+            ],
+            model=constants.CHEAPEST_MODEL,
+        )
+        self.save()
+
     def show(self, edit_mode: bool = False):
 
         # Allow to edit the name
+        cols = st.columns([1, 12])
+
+        if cols[0].button("♻"):
+            self.generate_name()
+
         if edit_mode:
-            with st.columns([1, 3])[0]:
-                new = st.text_input("Name", self.name)
-                if new != self.name:
-                    self.name = new
-                    self.save()
-                    st.rerun()
+            new = cols[1].text_input("Name", self.name)
+            if new != self.name:
+                self.name = new
+                self.save()
+                st.rerun()
+        else:
+            cols[1].subheader(self.name)
 
         if not self.messages:
             self.messages.append(dict(role="system", content=""))
@@ -134,9 +165,8 @@ class Chat:
 
 
 def new_chat():
-    name = "Untitled"
     path = DATA / f"{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.json"
-    chat = Chat(messages=[], path=path, name=name)
+    chat = Chat(messages=[], path=path, name=DEFAULT_NAME)
     chat.save()
 
 
@@ -145,7 +175,7 @@ def main():
 
     all_chats = [Chat.load(path) for path in DATA.glob("*.json")]
     # Created time
-    all_chats.sort(key=lambda x: x.path.stat().st_ctime, reverse=True)
+    all_chats.sort(key=lambda x: x.path.name, reverse=True)
 
     with st.sidebar:
         GENERATION_ARGS.model = st.selectbox("Model", constants.MODELS + [None])
@@ -156,6 +186,7 @@ def main():
 
         # The next line DOESNT WORK. It makes the app need more reloads every time a button is clicked.
         # selected_chat = st.radio("Select chat", all_chats, format_func=lambda x: x.name)
+
         # To work around this, we selected the chat by index
         idx = st.radio(
             "Select chat", range(len(all_chats)), format_func=lambda x: all_chats[x].name
