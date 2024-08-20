@@ -1,18 +1,12 @@
 import re
 import subprocess
 from pathlib import Path
-from textwrap import dedent, indent
 
 import openai
 import typer
 from pydantic import BaseModel
 
 import constants
-from utils import (
-    ai_stream,
-    print_join,
-    soft_parse_xml,
-)
 import utils
 
 
