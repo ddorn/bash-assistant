@@ -2,7 +2,7 @@ import os
 from pathlib import Path
 
 
-OPENAI_MODEL = "gpt-4o"
+OPENAI_MODEL = "gpt-4o-2024-08-06"
 ANTHROPIC_MODEL = "claude-3-opus-20240229"
 ANTHROPIC_MODEL = "claude-3-sonnet-20240229"
 ANTHROPIC_MODEL = "claude-2.1"
@@ -11,6 +11,7 @@ CHEAP_BUT_GOOD = "gpt-4o-mini"
 MODELS_COSTS = {
     "claude-3-5-sonnet-20240620": (3, 15),
     "gpt-4o": (5, 15),
+    "gpt-4o-2024-08-06": (5, 15),
     "gpt-4-turbo": (10, 30),
     "gpt-4o-mini": (0.15, 0.6),
     "gpt-3.5-turbo": (0.5, 1.5),

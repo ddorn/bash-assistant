@@ -136,6 +136,31 @@ def ai_chat(
         return response.choices[0].message.content
 
 
+def confirm_cost(messages: list[dict], model: str, max_cost: float | None) -> bool:
+    """
+    Get confirmation through the CLI if the estimated cost of processing messages if above the threshold.
+
+    Parameters:
+        messages (list[dict]): A list of message dictionaries to be processed.
+        model (str): The name of the model to be used for processing.
+        max_cost (float | None): The maximum allowable cost. If None, the function will always return True.
+
+    Returns:
+        bool: True if the estimated cost is within the max_cost or if max_cost is None. Otherwise, it returns the result of confirm_action.
+    """
+    if max_cost is None:
+        return True
+
+    estimation = estimate_cost(messages, model)
+    msg = f"{model}: {estimation}"
+
+    if estimation.input_cost < max_cost:
+        print(f"{msg}. Confirming automatically.")
+        return True
+    else:
+        return confirm_action(f"{msg}. Confirm?")
+
+
 def ai_stream(
     system: str | None,
     messages: list[dict[str, str]],
@@ -151,14 +176,8 @@ def ai_stream(
     if system:
         messages = [dict(role="system", content=system)] + messages
 
-    if confirm is not None:
-        estimation = estimate_cost(messages, model)
-        msg = f"{model}: {estimation}"
-
-        if estimation.input_cost < confirm:
-            print(f"{msg}. Confirming automatically.")
-        elif not confirm_action(f"{msg}. Confirm?"):
-            return
+    if not confirm_cost(messages, model, confirm):
+        return None
 
     new_kwargs = dict(
         max_tokens=1000,
