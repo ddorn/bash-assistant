@@ -1,6 +1,8 @@
 #!/bin/bash
 
 # Interactive filter for JSON files using fzf and jq
-# From https://dev.to/pbnj/fzf-jq-interactive-jq-15no
+# Adapted from https://dev.to/pbnj/fzf-jq-interactive-jq-15no
 
-echo '' | fzf-tmux -p '80%' --print-query --preview "cat ${1} | jq {q}"
+# The {q} string is replaced by the query string
+# Then we pass args 2:... to jq
+echo '' | fzf-tmux -p '80%' --print-query --preview "cat ${1} | jq {q} ${@:2}"
