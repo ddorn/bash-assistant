@@ -1,4 +1,13 @@
 import streamlit as st
 
 
-st.switch_page("pages/fix.py")
+PAGES = [
+    "fix",
+    "bai_web",
+    "battery",
+    # "dashboard",
+]
+
+page = st.navigation([st.Page(f"pages/{name}.py") for name in PAGES])
+
+page.run()

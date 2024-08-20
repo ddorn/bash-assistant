@@ -196,5 +196,4 @@ def main():
     selected_chat.show(edit_mode=edit_mode)
 
 
-if __name__ == "__main__":
-    main()
+main()

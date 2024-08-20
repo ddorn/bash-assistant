@@ -25,5 +25,4 @@ def dashboard():
     unneeded_packages()
 
 
-if __name__ == "__main__":
-    dashboard()
+dashboard()

@@ -63,7 +63,7 @@ fig.add_trace(
         fillcolor="rgba(0,0,0,0.1)",
     )
 )
-st.write(fig, use_container_width=True)
+st.plotly_chart(fig, use_container_width=True)
 
 
 # %%     Plot "Battery Level" vs combined columns "Time" + "Date"
@@ -101,7 +101,7 @@ for date in data["Date"].unique():
             x=times,
             y=df["Battery Level"],
             mode="lines",
-            name=date,
+            # name=date,
         )
     )
 
