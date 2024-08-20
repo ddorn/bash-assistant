@@ -6,36 +6,35 @@ import streamlit as st
 
 from utils import ai_stream
 
+system_prompts = {
+    "Fix typos": """
+        You are given a text and you need to fix the language (typos, grammar, ...).
+        If needed, fix the formatting and, when relevant, ensure the text is inclusive.
+        Output directly the corrected text, without any comment.
+        """,
+    "Heavy fix": """
+        You are given a text and you need to fix the language (typos, grammar, ...).
+        If needed, fix the formatting and, when relevant, ensure the text is inclusive.
+        Please also reformulate the text when needed, use better words and make it more clear.
+        Output directly the corrected text, without any comment.
+        """,
+    "Custom": "",
+}
+
+system_name = st.radio("System Prompt", list(system_prompts.keys()), horizontal=True)
 
 with st.form(key="fix"):
-    text = st.text_area(
-        "Text to fix",
-    )
-
-    system_prompts = {
-        "Default": """
-            You are given a text and you need to fix the language (typos, grammar, ...).
-            If needed, fix the formatting and, when relevant, ensure the text is inclusive.
-            Output directly the corrected text, without any comment.
-            """,
-        "Heavy": """
-            You are given a text and you need to fix the language (typos, grammar, ...).
-            If needed, fix the formatting and, when relevant, ensure the text is inclusive.
-            Please also reformulate the text when needed, use better words and make it more clear.
-            Output directly the corrected text, without any comment.
-            """,
-        "Custom": "",
-    }
 
     # Allow for custom prompts also
-    system_name = st.radio("System Prompt", list(system_prompts.keys()), horizontal=True)
     if system_name == "Custom":
-        system = st.text_area("Custom prompt", value=dedent(system_prompts["Default"]).strip())
+        system = st.text_area("Custom prompt", value=dedent(system_prompts["Fix typos"]).strip())
     else:
         system = dedent(system_prompts[system_name]).strip()
         st.code(system, language="text")
 
-    # lets_gooo = st.button("Fix", type="primary")
+    text = st.text_area(
+        "Text to fix",
+    )
 
     lets_gooo = st.form_submit_button("Fix", type="primary")
 
