@@ -435,9 +435,9 @@ def web(new: bool = False):
     """Start a web server to interact with the assistant."""
 
     if new:
-        command = "chainlit run src/web2.py"
+        command = "chainlit run src/web2.py --watch"
     else:
-        command = "streamlit run src/web.py"
+        command = "streamlit run src/web.py --server.runOnSave True"
 
     # Make sure the command is run in the correct directory.
     os.chdir(constants.ROOT)
