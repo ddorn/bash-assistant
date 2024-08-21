@@ -6,7 +6,6 @@ import base64
 import difflib
 import enum
 import io
-import json
 import os
 import re
 import subprocess
@@ -16,7 +15,7 @@ import time
 from contextlib import contextmanager
 from pathlib import Path
 from random import choice
-from textwrap import dedent, indent
+from textwrap import dedent
 from typing import Annotated, Literal
 import xml.etree.ElementTree as ET
 
@@ -32,11 +31,11 @@ from utils import (
     ai_stream,
     fmt_diff,
     get_text_input,
-    ai_chat,
-    print_join,
-    soft_parse_xml,
     confirm_action,
 )
+import commits
+from ynab import app as ynab_app
+from dcron import dcron
 
 
 def run_suggested_command(command: str, bash_console) -> tuple[str, str]:
@@ -140,7 +139,6 @@ def bash_scaffold(model: str = "gpt-4-turbo"):
     from prompt_toolkit.history import FileHistory
     from prompt_toolkit.lexers import PygmentsLexer
     from pygments.lexers.shell import BashLexer
-    from prompt_toolkit.key_binding import KeyBindings
 
     BASH_CONSOLE = pt.PromptSession(
         message="run: ",
@@ -162,8 +160,6 @@ def bash_scaffold(model: str = "gpt-4-turbo"):
         PROMPTS = yaml.safe_load(f)
 
     from InquirerPy import inquirer
-    from InquirerPy.base.control import Choice
-    from InquirerPy.separator import Separator
 
     prompt = inquirer.fuzzy(
         message="Select a prompt",
@@ -435,10 +431,13 @@ def report_spam():
 
 
 @app.command()
-def web():
+def web(new: bool = False):
     """Start a web server to interact with the assistant."""
 
-    command = "streamlit run src/web.py"
+    if new:
+        command = "chainlit run src/web2.py"
+    else:
+        command = "streamlit run src/web.py"
 
     # Make sure the command is run in the correct directory.
     os.chdir(constants.ROOT)
@@ -536,7 +535,7 @@ def timer(
             height = self.size.height - 2
 
             # Find the largest font that fits.
-            bw, bh = len(sec_str), 1
+            bw, _bh = len(sec_str), 1
             best = [sec_str]
             log = ""
             for font in fonts:
@@ -547,7 +546,7 @@ def timer(
                 log += f"{w=} {h=} {font.font}\n"
                 if bw <= w <= width and h <= height:
                     best = lines
-                    bw, bh = w, h
+                    bw, _bh = w, h
 
             first_line = "\n".join(line.center(width) for line in best)
             time_since_start = time.time() - self.start_time
@@ -674,10 +673,6 @@ def to_logseq(url: str, logseq_dir: Path = Path("~/Documents/logseq").expanduser
 
     print(f"✅ Saved as [[{file_name}]] in Logseq.")
 
-
-import commits
-from ynab import app as ynab_app
-from dcron import dcron
 
 app.add_typer(ynab_app, name="ynab", no_args_is_help=True, help="Commands to facilitate YNAB.")
 app.add_typer(
