@@ -16,12 +16,16 @@ import itertools
 import chainlit as cl
 from chainlit.input_widget import Select
 
-import chainlit.data
-
 # cl.instrument_openai()
 
 client = AsyncOpenAI()
 client_antropic = AsyncAnthropic()
+
+
+SYSTEM = """
+You are an helpful assistant, tasked to help Diego in his daily tasks. Your answer are concise and you use tools only when necessary.
+You can use code blocks and any markdown formatting.
+""".strip()
 
 
 class Tool:
@@ -396,7 +400,10 @@ async def call_gpt(messages: MessageHistory) -> list[MessagePart]:
         answer = (
             (
                 await client.chat.completions.create(
-                    messages=messages.to_openai(),
+                    messages=[
+                        dict(role="system", content=SYSTEM),
+                        *messages.to_openai(),
+                    ],
                     model=model,
                     temperature=0.2,
                     tools=[tool.as_json() for tool in TOOLS],
@@ -426,6 +433,7 @@ async def call_gpt(messages: MessageHistory) -> list[MessagePart]:
 
     elif "claude" in model:
         answer = await client_antropic.messages.create(
+            system=SYSTEM,
             messages=messages.to_anthropic(),
             model=model,
             temperature=0.2,
