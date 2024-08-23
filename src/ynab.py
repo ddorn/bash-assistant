@@ -118,8 +118,7 @@ def add_split_to_my_transaction(transaction, row, no_confirm):
     )
 
     if not no_confirm:
-        print(f"🤔 Update transaction splits?")
-        print(f"    Sesterce: {row['Title']} - {row['Date']}")
+        rprint(f"🤔 Update transaction splits? {fmt_transaction(row)}")
         for name, amount in row.items():
             if name.startswith("Paid for"):
                 print(f"     {name[9:]: >12}: {amount}€")
