@@ -170,15 +170,47 @@ class TextMessage(MessagePart):
 
 @dataclass
 class ImageMessage(MessagePart):
-    image_url: str
+    base_64: str
+
+    @classmethod
+    def from_path(cls, path: str):
+        img = PIL.Image.open(path)
+        # Convert the image to PNG format
+        buffered = BytesIO()
+        img.save(buffered, format="PNG")
+
+        # Encode the image to base64
+        img_base64 = base64.b64encode(buffered.getvalue()).decode("utf-8")
+
+        return cls(img_base64)
 
     def to_openai(self):
         return {
             "role": "user",
-            "content": [{"type": "image_url", "image_url": {"url": self.image_url}}],
+            "content": [
+                {
+                    "type": "image_url",
+                    "image_url": {
+                        "url": "data:image/png;base64," + self.base_64,
+                    },
+                }
+            ],
         }
 
-    to_anthropic = to_openai
+    def to_anthropic(self):
+        return {
+            "role": "user",
+            "content": [
+                {
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": "image/png",
+                        "data": self.base_64,
+                    },
+                }
+            ],
+        }
 
 
 @dataclass
@@ -463,16 +495,7 @@ async def on_message(message: cl.Message):
 
     for element in message.elements:
         if element.mime.startswith("image"):
-            img = PIL.Image.open(element.path)
-            # Convert the image to PNG format
-            buffered = BytesIO()
-            img.save(buffered, format="PNG")
-
-            # Encode the image to base64
-            img_base64 = base64.b64encode(buffered.getvalue()).decode("utf-8")
-
-            url = "data:image/png;base64," + img_base64
-            message_history.append(ImageMessage(url))
+            message_history.append(ImageMessage.from_path(element.path))
         else:
             await cl.Message(f"Unsupported element type: {element.mime}").send()
 
