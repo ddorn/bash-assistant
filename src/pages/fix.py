@@ -4,6 +4,7 @@ import re
 from textwrap import dedent
 import streamlit as st
 
+import constants
 from utils import ai_stream
 
 system_prompts = {
@@ -34,6 +35,10 @@ with st.form(key="fix"):
 
     text = st.text_area(
         "Text to fix",
+    )
+
+    model = st.selectbox(
+        "Model", constants.MODELS, index=constants.MODELS.index(constants.CHEAP_BUT_GOOD)
     )
 
     lets_gooo = st.form_submit_button("Fix", type="primary")
@@ -193,7 +198,7 @@ def fmt_diff_toggles(diff: list[str], start_with_old_selected: bool = False) -> 
 
     def fmt_part(part: str) -> str:
         if not part:
-            return f'<span class="whitespace-hint">∅</span>'
+            return '<span class="whitespace-hint">∅</span>'
         else:
             return escape(part).replace("\n", '<span class="whitespace-hint">↵</span><br>')
 
