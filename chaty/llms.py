@@ -96,3 +96,10 @@ class AnthropicLLM(LLM):
                 )
 
         return new_messages
+
+
+MODELS = [
+    AnthropicLLM("Claude 3.5 Sonnet", "claude-3-5-sonnet-20240620"),
+    OpenAILLM("GPT 4o", "gpt-4o"),
+    OpenAILLM("GPT 4o mini", "gpt-4o-mini"),
+]

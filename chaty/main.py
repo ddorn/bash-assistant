@@ -1,6 +1,4 @@
 from pprint import pprint
-from openai import AsyncOpenAI
-from anthropic import AsyncAnthropic
 
 import chainlit as cl
 
@@ -12,10 +10,7 @@ from messages import (
     ToolRequestMessage,
 )
 from tools import Tool, TOOLS
-from llms import OpenAILLM, AnthropicLLM, LLM
-
-client = AsyncOpenAI()
-client_antropic = AsyncAnthropic()
+from settings import Settings
 
 
 SYSTEM = """
@@ -24,78 +19,13 @@ You can use code blocks and any markdown formatting.
 """.strip()
 
 
-MODELS = [
-    AnthropicLLM("Claude 3.5 Sonnet", "claude-3-5-sonnet-20240620"),
-    OpenAILLM("GPT 4o", "gpt-4o"),
-    OpenAILLM("GPT 4o mini", "gpt-4o-mini"),
-]
-
-
 @cl.on_chat_start
 async def start_chat():
-    cl.user_session.set("message_history", MessageHistory())
-    cl.user_session.set("tool_use", True)
-    cl.user_session.set("model", MODELS[0].nice_name)
-
-    settings, actions = make_settings_widget_data()
-    settings_message = cl.Message(settings, actions=actions)
-    await settings_message.send()
-    cl.user_session.set("settings_message", settings_message)
-
-
-def make_settings_widget_data() -> tuple[str, list[cl.Action]]:
-    next_model = get_next_model()
-    tool_use = cl.user_session.get("tool_use", True)
-
-    actions = [
-        cl.Action(name="switch-model", value=next_model, label=f"Switch to {next_model}"),
-        cl.Action(name="toggle-tool-use", value="", label="Toggle tool use"),
-    ]
-
-    settings = f"""
-- **Model**: {cl.user_session.get("model")}
-- **Tool Use**: {'❌✅'[tool_use]}
-""".strip()
-
-    return settings, actions
-
-
-async def update_settings_widget():
-    settings, actions = make_settings_widget_data()
-    settings_message: cl.Message = cl.user_session.get("settings_message")
-    settings_message.content = settings
-    for action in settings_message.actions:
-        await action.remove()
-    settings_message.actions = actions
-    await settings_message.update()
-
-
-@cl.action_callback("switch-model")
-async def switch_model_action(action):
-    model = action.value
-    cl.user_session.set("model", model)
-
-    await update_settings_widget()
-
-
-@cl.action_callback("toggle-tool-use")
-async def toggle_tool_use_action(action):
-    tool_use = not cl.user_session.get("tool_use", True)
-    cl.user_session.set("tool_use", tool_use)
-
-    await update_settings_widget()
-
-
-def get_next_model() -> str:
-    current = cl.user_session.get("model", MODELS[0].nice_name)
-    model_idx = next(i for i, m in enumerate(MODELS) if m.nice_name == current)
-    next_model = MODELS[(model_idx + 1) % len(MODELS)]
-    return next_model.nice_name
+    await Settings.get().update_settings_message()
 
 
 async def call_gpt(messages: MessageHistory) -> list[MessagePart]:
-    nice_model_name = cl.user_session.get("model")
-    model: LLM = next(m for m in MODELS if m.nice_name == nice_model_name)
+    model = Settings.get().current_model
 
     with cl.Step(name=model.nice_name, type="llm") as step:
         step.input = messages.to_simple_json()
@@ -109,8 +39,8 @@ async def call_gpt(messages: MessageHistory) -> list[MessagePart]:
 
 @cl.on_message
 async def on_message(message: cl.Message):
-    message_history = cl.user_session.get("message_history")
-    assert isinstance(message_history, MessageHistory)
+    settings = Settings.get()
+    message_history = settings.history
 
     for element in message.elements:
         if element.mime.startswith("image"):
