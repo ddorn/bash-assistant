@@ -24,15 +24,23 @@ async def start_chat():
     await Settings.get().update_settings_message()
 
 
+@cl.password_auth_callback
+def auth_callback(username: str, password: str):
+    return cl.User(
+        identifier=username or "Diego",
+        display_name=username or "Diego",
+    )
+
+
 async def call_gpt(messages: MessageHistory) -> list[MessagePart]:
     model = Settings.get().current_model
 
     with cl.Step(name=model.nice_name, type="llm") as step:
-        step.input = messages.to_simple_json()
+        step.input = messages.to_dict()
 
         new_messages = await model(SYSTEM, messages, TOOLS)
 
-        step.output = MessageHistory(new_messages).to_simple_json()
+        step.output = MessageHistory(new_messages).to_dict()
 
         return new_messages
 
@@ -70,7 +78,7 @@ async def on_message(message: cl.Message):
         else:
             await cl.Message(content=f"Unrecognized message part: {part}").send()
 
-    pprint(message_history.to_simple_json())
+    pprint(message_history.to_dict())
 
 
 if __name__ == "__main__":

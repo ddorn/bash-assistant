@@ -16,6 +16,30 @@ class MessagePart:
     def to_anthropic(self):
         raise NotImplementedError()
 
+    # Serialization
+
+    def to_dict(self) -> dict:
+        return {
+            "class_name": self.__class__.__name__,
+            **dataclasses.asdict(self),
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "MessagePart":
+        class_name = data["class_name"]
+        for subclass in cls.all_subclasses():
+            # Doesn't work for sub-subclasses!
+            if subclass.__name__ == class_name:
+                return subclass(**{k: v for k, v in data.items() if k != "class_name"})
+
+        raise ValueError(f"Unknown class name: {class_name}")
+
+    @classmethod
+    def all_subclasses(cls):
+        return set(cls.__subclasses__()).union(
+            [s for c in cls.__subclasses__() for s in c.all_subclasses()]
+        )
+
 
 @dataclass
 class TextMessage(MessagePart):
@@ -233,5 +257,9 @@ class MessageHistory(list[MessagePart]):
 
         return formated
 
-    def to_simple_json(self) -> list[dict]:
-        return [dataclasses.asdict(message) for message in self]
+    def to_dict(self) -> list[dict]:
+        return [message.to_dict() for message in self]
+
+    @classmethod
+    def from_dict(cls, data: list[dict]) -> "MessageHistory":
+        return cls(MessagePart.from_dict(message) for message in data)

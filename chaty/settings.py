@@ -16,8 +16,14 @@ class Settings:
     def from_user_session(cls) -> "Settings":
         settings = cl.user_session.get("settings")
         if settings is None:
-            settings = cls(MODELS[0].nice_name, True, MessageHistory())
+            settings = cls(
+                model=MODELS[0].nice_name,
+                tool_use=True,
+                history=MessageHistory(),
+                settings_message=None,
+            )
             cl.user_session.set("settings", settings)
+
         return settings
 
     get = from_user_session
