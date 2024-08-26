@@ -1,4 +1,3 @@
-import json
 from pprint import pprint
 from openai import AsyncOpenAI
 from anthropic import AsyncAnthropic
@@ -13,6 +12,7 @@ from messages import (
     ToolRequestMessage,
 )
 from tools import Tool, TOOLS
+from llms import OpenAILLM, AnthropicLLM
 
 client = AsyncOpenAI()
 client_antropic = AsyncAnthropic()
@@ -24,18 +24,18 @@ You can use code blocks and any markdown formatting.
 """.strip()
 
 
-MODELS = {
-    "Claude 3.5 Sonnet": "claude-3-5-sonnet-20240620",
-    "GPT 4o": "gpt-4o",
-    "GPT 4o mini": "gpt-4o-mini",
-}
+MODELS = [
+    AnthropicLLM("Claude 3.5 Sonnet", "claude-3-5-sonnet-20240620"),
+    OpenAILLM("GPT 4o", "gpt-4o"),
+    OpenAILLM("GPT 4o mini", "gpt-4o-mini"),
+]
 
 
 @cl.on_chat_start
 async def start_chat():
     cl.user_session.set("message_history", MessageHistory())
     cl.user_session.set("tool_use", True)
-    cl.user_session.set("model", next(iter(MODELS.keys())))
+    cl.user_session.set("model", MODELS[0].nice_name)
 
     settings, actions = make_settings_widget()
     settings_message = cl.Message(settings, actions=actions)
@@ -44,7 +44,7 @@ async def start_chat():
 
 
 def make_settings_widget():
-    model, next_model = get_current_and_next_model()
+    next_model = get_next_model()
     tool_use = cl.user_session.get("tool_use", True)
 
     actions = [
@@ -53,7 +53,7 @@ def make_settings_widget():
     ]
 
     settings = f"""
-- **Model**: {model}
+- **Model**: {cl.user_session.get("model")}
 - **Tool Use**: {'❌✅'[tool_use]}
 """.strip()
 
@@ -86,82 +86,26 @@ async def toggle_tool_use_action(action):
     await update_settings_widget()
 
 
-def get_current_and_next_model() -> tuple[str, str]:
-    models = list(MODELS.keys())
-    current = cl.user_session.get("model", models[0])
-    next_model = models[(models.index(current) + 1) % len(models)]
-    return current, next_model
+def get_next_model() -> str:
+    current = cl.user_session.get("model", MODELS[0].nice_name)
+    model_idx = next(i for i, m in enumerate(MODELS) if m.nice_name == current)
+    next_model = MODELS[(model_idx + 1) % len(MODELS)]
+    return next_model.nice_name
 
 
-@cl.step(type="llm")
 async def call_gpt(messages: MessageHistory) -> list[MessagePart]:
-    model = cl.user_session.get("model")
-    cl.context.current_step.name = model
-
-    model_id = MODELS[model]
+    nice_model_name = cl.user_session.get("model")
+    model = next(m for m in MODELS if m.nice_name == nice_model_name)
 
     new_messages: list[MessagePart] = []
 
-    cl.context.current_step.input = messages.to_simple_json()
-    if "gpt" in model_id:
-        answer = (
-            (
-                await client.chat.completions.create(
-                    messages=[
-                        dict(role="system", content=SYSTEM),
-                        *messages.to_openai(),
-                    ],  # type: ignore
-                    model=model_id,
-                    temperature=0.2,
-                    tools=[tool.as_json() for tool in TOOLS],
-                )
-            )
-            .choices[0]
-            .message
-        )
+    with cl.Step(name=f"Calling {model}", type="llm"):
 
-        if answer.content is not None:
-            if isinstance(answer.content, str):
-                new_messages.append(TextMessage(answer.content, is_user=False))
-            else:
-                new_messages.append(
-                    TextMessage(f"Unrecognized content type: {answer.content}", is_user=False)
-                )
+        new_messages = await model(SYSTEM, messages, TOOLS)
 
-        if answer.tool_calls:
-            for tool_call in answer.tool_calls:
-                new_messages.append(
-                    ToolRequestMessage(
-                        tool_call.function.name,
-                        json.loads(tool_call.function.arguments),
-                        tool_call.id,
-                    )
-                )
+        cl.context.current_step.output = MessageHistory(new_messages).to_simple_json()
 
-    elif "claude" in model_id:
-
-        answer = await client_antropic.messages.create(
-            system=SYSTEM,
-            messages=messages.to_anthropic(),
-            model=model_id,
-            temperature=0.2,
-            max_tokens=4096,
-            tools=[tool.as_json(for_anthropic=True) for tool in TOOLS],
-        )
-
-        for part in answer.content:
-            if part.type == "text":
-                new_messages.append(TextMessage(part.text, is_user=False))
-            elif part.type == "tool_use":
-                new_messages.append(ToolRequestMessage(part.name, part.input, part.id))
-            else:
-                new_messages.append(
-                    TextMessage(f"Unrecognized content type: {part.type}", is_user=False)
-                )
-
-    cl.context.current_step.output = MessageHistory(new_messages).to_simple_json()
-
-    return new_messages
+        return new_messages
 
 
 @cl.on_message
