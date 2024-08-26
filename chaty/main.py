@@ -12,7 +12,7 @@ from messages import (
     ToolRequestMessage,
 )
 from tools import Tool, TOOLS
-from llms import OpenAILLM, AnthropicLLM
+from llms import OpenAILLM, AnthropicLLM, LLM
 
 client = AsyncOpenAI()
 client_antropic = AsyncAnthropic()
@@ -37,13 +37,13 @@ async def start_chat():
     cl.user_session.set("tool_use", True)
     cl.user_session.set("model", MODELS[0].nice_name)
 
-    settings, actions = make_settings_widget()
+    settings, actions = make_settings_widget_data()
     settings_message = cl.Message(settings, actions=actions)
     await settings_message.send()
     cl.user_session.set("settings_message", settings_message)
 
 
-def make_settings_widget():
+def make_settings_widget_data() -> tuple[str, list[cl.Action]]:
     next_model = get_next_model()
     tool_use = cl.user_session.get("tool_use", True)
 
@@ -61,7 +61,7 @@ def make_settings_widget():
 
 
 async def update_settings_widget():
-    settings, actions = make_settings_widget()
+    settings, actions = make_settings_widget_data()
     settings_message: cl.Message = cl.user_session.get("settings_message")
     settings_message.content = settings
     for action in settings_message.actions:
@@ -95,15 +95,14 @@ def get_next_model() -> str:
 
 async def call_gpt(messages: MessageHistory) -> list[MessagePart]:
     nice_model_name = cl.user_session.get("model")
-    model = next(m for m in MODELS if m.nice_name == nice_model_name)
+    model: LLM = next(m for m in MODELS if m.nice_name == nice_model_name)
 
-    new_messages: list[MessagePart] = []
-
-    with cl.Step(name=f"Calling {model}", type="llm"):
+    with cl.Step(name=model.nice_name, type="llm") as step:
+        step.input = messages.to_simple_json()
 
         new_messages = await model(SYSTEM, messages, TOOLS)
 
-        cl.context.current_step.output = MessageHistory(new_messages).to_simple_json()
+        step.output = MessageHistory(new_messages).to_simple_json()
 
         return new_messages
 
