@@ -4,7 +4,6 @@ from openai import AsyncOpenAI
 from anthropic import AsyncAnthropic
 
 import chainlit as cl
-from chainlit.input_widget import Select
 
 from messages import (
     ImageMessage,
@@ -12,7 +11,6 @@ from messages import (
     MessagePart,
     TextMessage,
     ToolRequestMessage,
-    ToolOutputMessage,
 )
 from tools import Tool, TOOLS
 
@@ -26,61 +24,86 @@ You can use code blocks and any markdown formatting.
 """.strip()
 
 
+MODELS = {
+    "Claude 3.5 Sonnet": "claude-3-5-sonnet-20240620",
+    "GPT 4o": "gpt-4o",
+    "GPT 4o mini": "gpt-4o-mini",
+}
+
+
 @cl.on_chat_start
 async def start_chat():
     cl.user_session.set("message_history", MessageHistory())
+    cl.user_session.set("tool_use", True)
+    cl.user_session.set("model", next(iter(MODELS.keys())))
 
-    settings = await cl.ChatSettings(
-        [
-            Select(
-                id="model",
-                label="Model",
-                values=[
-                    "claude-3-5-sonnet-20240620",
-                    "gpt-4o",
-                    "gpt-4o-mini",
-                ],
-                initial_index=0,
-            ),
-        ]
-    ).send()
-
-    cl.user_session.set("settings", settings)
-    await cl.Message(content=f"Selected model: {settings}").send()
+    settings, actions = make_settings_widget()
+    settings_message = cl.Message(settings, actions=actions)
+    await settings_message.send()
+    cl.user_session.set("settings_message", settings_message)
 
 
-@cl.on_settings_update
-async def update_settings(settings: dict):
-    cl.user_session.set("settings", settings)
-    await cl.Message(content=f"Updated settings: {settings}").send()
+def make_settings_widget():
+    model, next_model = get_current_and_next_model()
+    tool_use = cl.user_session.get("tool_use", True)
+
+    actions = [
+        cl.Action(name="switch-model", value=next_model, label=f"Switch to {next_model}"),
+        cl.Action(name="toggle-tool-use", value="", label="Toggle tool use"),
+    ]
+
+    settings = f"""
+- **Model**: {model}
+- **Tool Use**: {'❌✅'[tool_use]}
+""".strip()
+
+    return settings, actions
 
 
-@cl.step(type="tool")
-async def call_tool(
-    tool: Tool, tool_call_id: str, arguments: dict, message_history: MessageHistory
-):
+async def update_settings_widget():
+    settings, actions = make_settings_widget()
+    settings_message: cl.Message = cl.user_session.get("settings_message")
+    settings_message.content = settings
+    for action in settings_message.actions:
+        await action.remove()
+    settings_message.actions = actions
+    await settings_message.update()
 
-    current_step = cl.context.current_step
-    assert current_step is not None
-    current_step.name = tool.name
-    current_step.input = arguments
 
-    function_response = await tool.run(**arguments)
+@cl.action_callback("switch-model")
+async def switch_model_action(action):
+    model = action.value
+    cl.user_session.set("model", model)
 
-    message_history.append(ToolOutputMessage(tool_call_id, tool.name, function_response))
+    await update_settings_widget()
 
-    return function_response
+
+@cl.action_callback("toggle-tool-use")
+async def toggle_tool_use_action(action):
+    tool_use = not cl.user_session.get("tool_use", True)
+    cl.user_session.set("tool_use", tool_use)
+
+    await update_settings_widget()
+
+
+def get_current_and_next_model() -> tuple[str, str]:
+    models = list(MODELS.keys())
+    current = cl.user_session.get("model", models[0])
+    next_model = models[(models.index(current) + 1) % len(models)]
+    return current, next_model
 
 
 @cl.step(type="llm")
 async def call_gpt(messages: MessageHistory) -> list[MessagePart]:
-    model = cl.user_session.get("settings")["model"]
+    model = cl.user_session.get("model")
     cl.context.current_step.name = model
+
+    model_id = MODELS[model]
 
     new_messages: list[MessagePart] = []
 
     cl.context.current_step.input = messages.to_simple_json()
-    if "gpt" in model:
+    if "gpt" in model_id:
         answer = (
             (
                 await client.chat.completions.create(
@@ -88,7 +111,7 @@ async def call_gpt(messages: MessageHistory) -> list[MessagePart]:
                         dict(role="system", content=SYSTEM),
                         *messages.to_openai(),
                     ],  # type: ignore
-                    model=model,
+                    model=model_id,
                     temperature=0.2,
                     tools=[tool.as_json() for tool in TOOLS],
                 )
@@ -115,12 +138,12 @@ async def call_gpt(messages: MessageHistory) -> list[MessagePart]:
                     )
                 )
 
-    elif "claude" in model:
+    elif "claude" in model_id:
 
         answer = await client_antropic.messages.create(
             system=SYSTEM,
             messages=messages.to_anthropic(),
-            model=model,
+            model=model_id,
             temperature=0.2,
             max_tokens=4096,
             tools=[tool.as_json(for_anthropic=True) for tool in TOOLS],

@@ -119,5 +119,7 @@ class PythonTool(Tool):
         if not out:
             out = "No output from the tool. Remember to use print() to output something."
 
+        return out
+
 
 TOOLS = [BashTool(), PythonTool()]
