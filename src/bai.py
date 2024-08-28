@@ -430,22 +430,23 @@ def report_spam():
         rich.print(response.json())
 
 
-@app.command()
-def web(new: bool = False):
+@app.command(context_settings={"allow_extra_args": True, "ignore_unknown_options": True})
+def web(ctx: typer.Context, new: bool = False):
     """Start a web server to interact with the assistant."""
 
     if new:
-        command = "chainlit run main.py --watch"
+        command = "chainlit run main.py --watch".split()
         os.chdir(constants.ROOT / "chaty")
     else:
-        command = "streamlit run src/web.py --server.runOnSave True"
+        command = "streamlit run src/web.py --server.runOnSave True".split()
         # Make sure the command is run in the correct directory.
         os.chdir(constants.ROOT)
 
     # Find the correct python executable.
     python = sys.executable
+    full_command = [python, "-m", *command, *ctx.args]
 
-    subprocess.run(f"{python} -m {command}", shell=True)
+    os.execvp(full_command[0], full_command)
 
 
 @app.command()
