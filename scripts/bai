@@ -4,9 +4,9 @@ set -e
 script_directory=$(dirname $(realpath $0))
 directory=$(dirname $script_directory)
 
-# Source secrets.sh if it exists
-if [ -f $directory/secrets.sh ]; then
-  source $directory/secrets.sh
+# Source .envrc if it exists
+if [ -f $directory/.envrc ]; then
+  source $directory/.envrc
 fi
 
 $directory/.venv/bin/python $directory/src/bai.py "$@"
