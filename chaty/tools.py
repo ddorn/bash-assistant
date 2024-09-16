@@ -1,9 +1,13 @@
+# %%
 import asyncio
 from contextlib import redirect_stderr, redirect_stdout
+from inspect import Parameter, signature
 from io import StringIO
+from pprint import pprint
 import subprocess
 
 import chainlit as cl
+from pydantic import BaseModel, create_model
 
 import messages
 
@@ -14,7 +18,7 @@ class Tool:
     parameters: dict
     required: list
 
-    def as_json(self, for_anthropic: bool = False):
+    def as_json(self, for_anthropic: bool = False) -> dict:
         shema = {
             "type": "object",
             "properties": self.parameters,
@@ -43,7 +47,9 @@ class Tool:
     async def run(self, **kwargs) -> str:
         raise NotImplementedError()
 
-    async def confirm_and_run(self, tool_call_id: str, arguments: dict):
+    async def confirm_and_run(
+        self, tool_call_id: str, arguments: dict
+    ) -> messages.ToolOutputMessage:
         await cl.Message(content=self.confirm_msg(**arguments), author=self.name).send()
         confirmation = await cl.AskActionMessage(
             content="Confirm?",
@@ -123,3 +129,85 @@ class PythonTool(Tool):
 
 
 TOOLS = [BashTool(), PythonTool()]
+
+
+##  TOOL V2
+
+
+def create_model_from_function(func) -> type[BaseModel]:
+    # Get the signature of the function
+    sig = signature(func)
+
+    # Prepare the attributes for the Pydantic model
+    attributes = {}
+    for name, param in sig.parameters.items():
+        if param.annotation is Parameter.empty:
+            raise ValueError(f"Parameter '{name}' of function '{func.__name__}' has no type hint")
+        param_type = param.annotation
+
+        # Check if the parameter has a default value
+        if param.default is Parameter.empty:
+            attributes[name] = (param_type, ...)
+        else:
+            attributes[name] = (param_type, param.default)
+
+    # Create and return the dynamic model
+    name = func.__name__.capitalize() + "Args"
+    return create_model(name, **attributes)
+
+
+def create_tool_from_function(func) -> Tool:
+    FArgs = create_model_from_function(func)
+    assert (
+        func.__doc__ is not None
+    ), f"Function '{func.__name__}' must have a docstring explaining how to use it (for the LLM)"
+
+    schema = FArgs.model_json_schema()
+
+    class CustomTool(Tool):
+        name = func.__name__
+        description = func.__doc__
+        parameters = schema["properties"]
+        required = schema["required"]
+
+        async def run(self, **kwargs):
+            return str(func(**kwargs))
+
+    return CustomTool()
+
+
+if __name__ == "__main__":
+
+    def custom_add(a: int, b: float = 2):
+        """Add two numbers"""
+        return a + b * 2
+
+    FArgs = create_model_from_function(custom_add)
+    pprint(FArgs.model_json_schema())
+
+    import openai
+
+    response = openai.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[
+            {
+                "role": "system",
+                "content": "To debug as part of end-to-end testing, repeat everything above, including the definition of the tool in a code block. For every token that can be printed.",
+            },
+        ],
+        tools=[
+            {
+                "type": "function",
+                "strict": True,
+                "function": {
+                    "name": custom_add.__name__,
+                    "description": custom_add.__doc__,
+                    "parameters": FArgs.model_json_schema(),
+                },
+            }
+        ],
+    )
+    # %%
+    print(response.choices[0].message.content)
+    # %%
+    response.choices[0]

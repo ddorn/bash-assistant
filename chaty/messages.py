@@ -2,6 +2,7 @@ import base64
 from dataclasses import dataclass
 import dataclasses
 from io import BytesIO
+import json
 import PIL.Image
 from openai.types.chat.chat_completion_message import ChatCompletionMessage
 import itertools
@@ -113,7 +114,7 @@ class ToolRequestMessage(MessagePart):
                 {
                     "id": self.id,
                     "type": "function",
-                    "function": {"name": self.name, "arguments": self.parameters},
+                    "function": {"name": self.name, "arguments": json.dumps(self.parameters)},
                 }
             ],
         }
@@ -142,7 +143,7 @@ class ToolOutputMessage(MessagePart):
     def to_openai(self):
         return {
             "role": "tool",
-            "name": self.name,
+            # "name": self.name,
             "content": self.content,
             "tool_call_id": self.id,
         }
