@@ -75,28 +75,26 @@ class WebChat:
         self.show_messages(*self.messages)
 
         for part in self.unprocessed_messages[:]:
+            needs_processing = True
             if isinstance(part, ToolRequestMessage):
-                output = await self.confirm_and_run(part)
-                if output is not None:
-                    self.unprocessed_messages.remove(part)
-                    self.messages.append(part)
-                    self.messages.append(output)
-                    st.rerun()
+                new_parts = await self.confirm_and_run(part)
+                if new_parts:
+                    new_parts = [new_parts]
             elif isinstance(part, TextMessage) and part.is_user:
                 # Generate a response
                 self.show_messages(part)
                 new_parts = await self.model(
                     "Be straightforward.", MessageHistory((*self.messages, part)), self.all_tools
                 )
-                self.unprocessed_messages.extend(new_parts)
-                self.messages.append(part)
-                self.unprocessed_messages.remove(part)
-                st.rerun()
-
             else:
+                needs_processing = False
+                new_parts = []
+
+            if new_parts or not needs_processing:
+                self.unprocessed_messages.extend(new_parts)
                 self.unprocessed_messages.remove(part)
                 self.messages.append(part)
-                self.show_messages(part)
+                st.rerun()
 
         # Get the user's message
         if not self.unprocessed_messages:
@@ -114,6 +112,7 @@ class WebChat:
                     st.write(f"**output**: {message.content}")
                 continue
 
+            # Others have their own containers.
             role = message.to_openai()["role"]
             container = st.chat_message(name=role)
             with container:
@@ -148,6 +147,7 @@ class WebChat:
                 label_visibility="collapsed",
                 key="actions" + part.id,
             )
+
         if action is None:
             return
         elif action == ToolActions.ALLOW_AND_RUN:
