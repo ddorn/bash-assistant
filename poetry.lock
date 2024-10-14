@@ -1771,6 +1771,22 @@ files = [
 ]
 
 [[package]]
+name = "oauthlib"
+version = "3.2.2"
+description = "A generic, spec-compliant, thorough implementation of the OAuth request-signing logic"
+optional = false
+python-versions = ">=3.6"
+files = [
+    {file = "oauthlib-3.2.2-py3-none-any.whl", hash = "sha256:8139f29aac13e25d502680e9e19963e83f16838d48a0d71c287fe40e7067fbca"},
+    {file = "oauthlib-3.2.2.tar.gz", hash = "sha256:9859c40929662bec5d64f34d01c99e093149682a3f38915dc0655d5a633dd918"},
+]
+
+[package.extras]
+rsa = ["cryptography (>=3.0.0)"]
+signals = ["blinker (>=1.4.0)"]
+signedtoken = ["cryptography (>=3.0.0)", "pyjwt (>=2.0.0,<3)"]
+
+[[package]]
 name = "openai"
 version = "1.41.1"
 description = "The official Python library for the openai API"
@@ -1938,6 +1954,24 @@ files = [
 [package.dependencies]
 deprecated = ">=1.2.6"
 opentelemetry-api = "1.26.0"
+
+[[package]]
+name = "ovh"
+version = "1.2.0"
+description = "\"Official module to perform HTTP requests to the OVHcloud APIs\""
+optional = false
+python-versions = "*"
+files = [
+    {file = "ovh-1.2.0-py2.py3-none-any.whl", hash = "sha256:0e9940bd53fc615dc89d3cfcd80f07282a4ad9f083c3f769b6fb98d501938307"},
+    {file = "ovh-1.2.0.tar.gz", hash = "sha256:d311f08ec17b62cc61216b3dacf03ee89f95a1da9036a595dac29fc9d798b827"},
+]
+
+[package.dependencies]
+requests = ">=2.31.0"
+requests-oauthlib = ">=2.0.0"
+
+[package.extras]
+dev = ["Sphinx (==1.2.2)", "black", "coverage (>=7.2.2,<7.3.0)", "flake8", "isort", "pytest (>=7.2.2,<7.3.0)", "pytest-cov (==4.0.0)", "setuptools (>=30.3.0)", "wheel"]
 
 [[package]]
 name = "packaging"
@@ -3065,6 +3099,24 @@ socks = ["PySocks (>=1.5.6,!=1.5.7)"]
 use-chardet-on-py3 = ["chardet (>=3.0.2,<6)"]
 
 [[package]]
+name = "requests-oauthlib"
+version = "2.0.0"
+description = "OAuthlib authentication support for Requests."
+optional = false
+python-versions = ">=3.4"
+files = [
+    {file = "requests-oauthlib-2.0.0.tar.gz", hash = "sha256:b3dffaebd884d8cd778494369603a9e7b58d29111bf6b41bdc2dcd87203af4e9"},
+    {file = "requests_oauthlib-2.0.0-py2.py3-none-any.whl", hash = "sha256:7dd8a5c40426b779b0868c404bdef9768deccf22749cde15852df527e6269b36"},
+]
+
+[package.dependencies]
+oauthlib = ">=3.0.0"
+requests = ">=2.0.0"
+
+[package.extras]
+rsa = ["oauthlib[signedtoken] (>=3.0.0)"]
+
+[[package]]
 name = "rich"
 version = "13.7.0"
 description = "Render rich text, tables, progress bars, syntax highlighting, markdown and more to the terminal"
@@ -4012,4 +4064,4 @@ test = ["big-O", "importlib-resources", "jaraco.functools", "jaraco.itertools", 
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.11"
-content-hash = "2cd192246bd7f1f9a8cd3822670f2c72658d24b6c44858941875e9ff634bd776"
+content-hash = "ac1fb1e499cab996f1dd0839078a493d5517fd336de0bdb4e48359107016f0ea"
