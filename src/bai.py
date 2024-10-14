@@ -36,6 +36,7 @@ from utils import (
 import commits
 from ynab import app as ynab_app
 from dcron import dcron
+from ovh_tools import app as ovh_app
 
 
 def run_suggested_command(command: str, bash_console) -> tuple[str, str]:
@@ -679,6 +680,7 @@ app.add_typer(ynab_app, name="ynab", no_args_is_help=True, help="Commands to fac
 app.add_typer(
     dcron.app, name="dcron", no_args_is_help=True, help="My own cron jobs. Stuff that repeats."
 )
+app.add_typer(ovh_app, name="ovh", no_args_is_help=True, help="Commands to interact OVH DNS.")
 app.command()(commits.commit)
 app.command()(commits.commit_install)
 
