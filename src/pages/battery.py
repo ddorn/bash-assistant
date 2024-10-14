@@ -16,6 +16,15 @@ data["Weekday"] = data["DateTime"].dt.strftime("%A")
 st.title("Battery Logs")
 st.write(data.head())
 
+# %% Filter for the last N days, as prompted
+first_day = data["DateTime"].min().date()
+today = pd.Timestamp.now().date()
+days = (today - first_day).days
+last_days = st.slider("Last N days", 1, days + 1, 14)
+last_days = today - pd.Timedelta(days=last_days)
+
+data = data[data["DateTime"].dt.date >= last_days]
+
 # %% Plot of the time I spend on my computer each day
 # For each log, find the time until the next log, but capped by 5 minutes
 times_diff = data["DateTime"].diff()
@@ -63,6 +72,21 @@ fig.add_trace(
         fillcolor="rgba(0,0,0,0.1)",
     )
 )
+st.plotly_chart(fig, use_container_width=True)
+
+# %% Bar plot of number of hours each week
+data["Week"] = data["DateTime"].dt.strftime("%Y-%U")
+time_spent = data.groupby("Week")["Time Spent"].sum().reset_index()
+time_spent["Time Spent"] = time_spent["Time Spent"] / 60
+time_spent["Week"] = pd.to_datetime(time_spent["Week"] + "-0", format="%Y-%U-%w")
+
+fig = px.bar(
+    time_spent,
+    x="Week",
+    y="Time Spent",
+    title="Time Spent on Computer per Week",
+)
+fig.update_yaxes(title_text="Time Spent (hours)")
 st.plotly_chart(fig, use_container_width=True)
 
 
