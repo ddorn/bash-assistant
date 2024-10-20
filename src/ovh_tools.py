@@ -12,6 +12,13 @@ def get_client() -> ovh.Client:
     application_secret = os.getenv("OVH_APPLICATION_SECRET")
     consumer_key = os.getenv("OVH_CONSUMER_KEY")
 
+    if not application_key:
+        print("OVH_APPLICATION_KEY is not set")
+    if not application_secret:
+        print("OVH_APPLICATION_SECRET is not set")
+    if not consumer_key:
+        print("OVH_CONSUMER_KEY is not set")
+
     if application_key and application_secret and consumer_key:
         return ovh.Client(
             endpoint="ovh-eu",  # Endpoint of API OVH (List of available endpoints:
@@ -20,10 +27,6 @@ def get_client() -> ovh.Client:
             consumer_key=consumer_key,  # Consumer Key
         )
     else:
-        print("Please set the following environment variables:")
-        print("OVH_APPLICATION_KEY")
-        print("OVH_APPLICATION_SECRET")
-        print("OVH_CONSUMER_KEY")
         print(
             "You can generate new credentials with full access to your account on the token creation page (https://api.ovh.com/createToken/index.cgi?GET=/*&PUT=/*&POST=/*&DELETE=/*)"
         )
