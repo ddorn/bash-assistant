@@ -18,12 +18,19 @@ app = Typer()
 
 
 def fmt_transaction(row):
-    title = row["Title"]
-    date = row["Date"].strftime("%Y-%m-%d")
-    url = SESTERCE_TRANSACTION_URL.format(id=row["ID"])
+    """Format a transaction row from sesterce or Ynab for display."""
 
-    total = sum(val for key, val in row.items() if key.startswith("Paid for"))
-    title = f"[link={url}]{title}[/]"
+    try:
+        title = row["Title"]
+        date = row["Date"].strftime("%Y-%m-%d")
+        url = SESTERCE_TRANSACTION_URL.format(id=row["ID"])
+        title = f"[link={url}]{title}[/]"
+        total = sum(val for key, val in row.items() if key.startswith("Paid for"))
+    except KeyError:
+        # It's a YNAB transaction!
+        title = row["payee_name"]
+        date = row["date"]
+        total = round(row["amount"] / 1000, 2)
 
     return f"[bold orange3]{title}[/] ([green]{total:.2f}[/]💶, {date})"
 
@@ -322,6 +329,80 @@ def ynab_ids():
     )
     for account in response.json()["data"]["accounts"]:
         print(f"🏦 {account['name']} ({account['id']})")
+
+
+def get_catergory_id_from_name(name: str):
+    """Get the category id from the name or id of the category."""
+    response = requests.get(
+        "https://api.youneedabudget.com/v1/budgets/last-used/categories", headers=HEADERS
+    )
+
+    category_id = None
+    for group in response.json()["data"]["category_groups"]:
+        for category in group["categories"]:
+            if category["name"] == name:
+                if category_id is not None:
+                    raise ValueError(f"Multiple categories with name {name}. Use the id.")
+                category_id = category["id"]
+            elif category["id"] == name:
+                return name
+
+    if category_id is None:
+        raise ValueError(f"Category {name} not found.")
+    return category_id
+
+
+@app.command(no_args_is_help=True)
+def split_all(new_category: str, proportion: float, no_confirm: bool = False):
+    """Split all transactions with a Purple Flag in YNAB."""
+
+    assert 0 < proportion < 1
+    response = requests.get(BASE, headers=HEADERS)
+    transactions = response.json()["data"]["transactions"]
+
+    new_category_id = get_catergory_id_from_name(new_category)
+    rprint(
+        f"🔀 Splitting all transactions with a [purple]purple flag[/] to {new_category} ({new_category_id})"
+    )
+
+    for transaction in transactions:
+        # If split, skip
+        if transaction["flag_color"] == "purple":
+            if transaction["subtransactions"]:
+                rprint(f"👌 Transaction {fmt_transaction(transaction)} is already split")
+                continue
+
+            amount = transaction["amount"]
+            new_amount = int(amount * proportion)
+            payload = dict(
+                id=transaction["id"],
+                subtransactions=[
+                    dict(amount=amount - new_amount, category_id=transaction["category_id"]),
+                    dict(amount=new_amount, category_id=new_category_id),
+                ],
+            )
+
+            if not no_confirm:
+                rprint(f"🤔 Update transaction splits? {fmt_transaction(transaction)}")
+                print(f"   New split: {new_amount/1000}€ {new_category}")
+                print(f"   New split: {(amount - new_amount)/1000}€ {transaction['category_name']}")
+                from InquirerPy import inquirer
+
+                if not inquirer.confirm("Continue?", default=True).execute():
+                    print("🚫 Skipped")
+                    continue
+
+            response = requests.put(
+                f"{BASE}/{transaction['id']}", headers=HEADERS, json={"transaction": payload}
+            )
+
+            if response.status_code != 200:
+                print(
+                    f"❌ Error while updating transaction for {transaction['payee_name']}: {response.status_code}"
+                )
+                pprint(response.json())
+            else:
+                print(f"🌟 Updated transaction for {transaction['payee_name']} with split")
 
 
 @app.command()
