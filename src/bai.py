@@ -183,7 +183,7 @@ def bash_scaffold(model: str = "gpt-4-turbo"):
         question = PROMPTS_CONSOLE.prompt()
         messages.append({"role": "user", "content": last_command_result + question})
 
-        answer = get_response(system, messages)
+        answer = get_response(system, messages, model=model)
 
         # Ask to run the bash command
         if (start := answer.find(constants.BASH_START)) != -1 and (

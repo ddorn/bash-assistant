@@ -185,8 +185,7 @@ def ai_stream(
         return None
 
     new_kwargs = dict(
-        max_tokens=1000,
-        temperature=0.2,
+        temperature=1.0,
     )
     kwargs = {**new_kwargs, **kwargs}
 
@@ -197,17 +196,28 @@ def ai_stream(
         if messages[-1]["role"] == "assistant":
             yield messages[-1]["content"]
 
+        kwargs.setdefault("max_tokens", 1000)
         with anthropic_client.messages.stream(
-            model=constants.ANTHROPIC_MODEL,
+            model=model,
             messages=messages,
             system=system,
             **kwargs,
         ) as stream:
             for text in stream.text_stream:
                 yield text
+    elif "o1" in model:
+        kwargs["temperature"] = 1.0
+        response = openai.chat.completions.create(
+            model=model,
+            messages=messages,
+            **kwargs,
+        )
+        # no streaming for o1!
+        yield response.choices[0].message.content
+
     else:
         response = openai.chat.completions.create(
-            model=constants.OPENAI_MODEL,
+            model=model,
             messages=messages,
             stream=True,
             **kwargs,
