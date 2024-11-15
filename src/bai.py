@@ -7,6 +7,7 @@ import difflib
 import enum
 import io
 import os
+from pprint import pprint
 import re
 import subprocess
 import sys
@@ -15,15 +16,15 @@ import time
 from contextlib import contextmanager
 from pathlib import Path
 from random import choice
-from textwrap import dedent
 from typing import Annotated, Literal
-import xml.etree.ElementTree as ET
+
 
 import openai
 import requests
 import rich
 import typer
 import yaml
+from rich import print as rprint
 
 import constants
 from utils import (
@@ -582,96 +583,98 @@ def timer(
     TimerApp(total).run()
 
 
+def sanitize_file_name(name: str) -> str:
+    return "".join(c if c.isalnum() or c in "'- ." else "" for c in name)
+
+
 @app.command(name="logseq")
-def to_logseq(url: str, logseq_dir: Path = Path("~/Documents/logseq").expanduser()):
+def to_logseq(
+    url: str,
+    logseq_dir: Path = Path("~/Documents/logseq").expanduser(),
+    template: Path = Path("~/Documents/logseq/pages/Paper Template.md").expanduser(),
+):
     """Download the given paper and convert it to a Logseq journal entry."""
 
-    # For Arxiv papers
-    if "arxiv" in url:
-        print("Using arXiv API to fetch the paper data...")
-        arxiv_id = url.split("/")[-1]
-        if arxiv_id.endswith(".pdf"):
-            arxiv_id = arxiv_id[:-4]
-        api_url = f"http://export.arxiv.org/api/query?id_list={arxiv_id}"
-        response = requests.get(api_url)
-        if response.status_code != 200:
-            raise Exception(f"Failed to fetch data from arXiv API: {response.status_code}")
-        data = response.content
+    # See docs at https://api.semanticscholar.org/api-docs/#tag/Paper-Data/operation/get_graph_get_paper
+    # In particular, availaible fields
+    id = f"URL:{url}"
+    api_url = f"https://api.semanticscholar.org/graph/v1/paper/{id}"
+    fields = "title,citationStyles,authors,abstract,year,journal,openAccessPdf,publicationDate,venue,citationCount"
 
-        root = ET.fromstring(data)
-        entry = root.find("{http://www.w3.org/2005/Atom}entry")
-        if entry is None:
-            raise Exception("No entry found in the arXiv data")
+    print("Using Semantic Scholar API to fetch the paper data...")
+    response = requests.get(api_url, params={"fields": fields})
+    if response.status_code != 200:
+        print(response.text)
+        raise Exception(f"Failed to fetch data: {response.status_code}")
+    data = response.json()
 
-        title = entry.find("{http://www.w3.org/2005/Atom}title").text.strip()
-        authors = [
-            author.find("{http://www.w3.org/2005/Atom}name").text
-            for author in entry.findall("{http://www.w3.org/2005/Atom}author")
-        ]
-        abstract = entry.find("{http://www.w3.org/2005/Atom}summary").text.strip()
-        published = entry.find("{http://www.w3.org/2005/Atom}published").text
+    data["citations"] = len(data.get("citations", []))
+    pprint(data)
 
-        data = {
-            "title": title,
-            "authors": authors,
-            "abstract": abstract,
-            "published": published,
-            "pdf": f"https://arxiv.org/pdf/{arxiv_id}.pdf",
-        }
+    # Gather all the fields for templating
+    data = {
+        "url": url,
+        "title": data["title"],
+        "authors": [author["name"] for author in data["authors"]],
+        "abstract": data["abstract"],
+        "year": data["year"],
+        # "pdf": f"https://arxiv.org/pdf/{data['arxivId']}.pdf",
+        "pdf_url": data["openAccessPdf"]["url"] if data["openAccessPdf"] else None,
+        "logseq_author_listing": ", ".join(f"[[{author['name']}]]" for author in data["authors"]),
+        "publication_date": data["publicationDate"],
+        "journal": data["journal"]["name"] if "journal" in data else "<no journal>",
+        "venue": data["venue"],
+        "bibtex": data["citationStyles"]["bibtex"],
+        "citations": data["citationCount"],
+        "today": time.strftime("[[%Y-%m-%d, %a]]"),
+    }
+    for i, author in enumerate(data["authors"], start=1):
+        data[f"author_{i}"] = author
 
-    elif "semanticscholar" in url:
-        print("Using Semantic Scholar API to fetch the paper data...")
-        id = url.split("/")[-1]
-        api_url = f"https://api.semanticscholar.org/v1/paper/{id}?fields=title,authors,abstract,arxivId,year"
-        response = requests.get(api_url)
-        if response.status_code != 200:
-            raise Exception(
-                f"Failed to fetch data from Semantic Scholar API: {response.status_code}"
-            )
-        data = response.json()
+    file_format = "{title} - {author_1}"
+    file_name = sanitize_file_name(file_format.format(**data))
 
-        data = {
-            "title": data["title"],
-            "authors": [author["name"] for author in data["authors"]],
-            "abstract": data["abstract"],
-            "published": data["year"],
-            "pdf": f"https://arxiv.org/pdf/{data['arxivId']}.pdf",
-        }
+    pdf_relative_path = Path("assets") / "Papers" / f"{file_name}.pdf"
+    md_relative_path = Path("pages") / "Papers" / f"{file_name}.md"
+    pdf_path = logseq_dir / pdf_relative_path
+    entry_path = logseq_dir / md_relative_path
 
-    else:
-        raise ValueError("Only arXiv and Semantic Scholar URLs are supported")
+    data["filename_without_extension"] = file_name
+    data["pdf_relative_path"] = pdf_relative_path
+    data["md_relative_path"] = md_relative_path
+    data["hls_filename"] = "hls__" + file_name
 
     # Create the Logseq entry. One page, with metadata and the PDF.
-    file_name = data["title"]
-    entry_path = logseq_dir / "pages" / f"{file_name}.md"
-    pdf_path = logseq_dir / "assets" / f"{file_name}.pdf"
-    pdf_relative_to_entry = pdf_path.relative_to(entry_path.parent, walk_up=True)
-    highlight_file = "hls__" + "".join(c if c.isalnum() or c in "' " else "" for c in file_name)
-    entry = dedent(
-        f"""
-    url:: {url}
-    title:: {data['title']}
-    authors:: {', '.join(f'[[{author}]]' for author in data['authors'])}
-    published:: {data['published']}
-    file:: ![pdf]({pdf_relative_to_entry})
+    template_str = template.read_text()
+    entry = template_str.format(**data)
 
-    - **Abstract**: {data['abstract']}
-    - **Highlights**: """
-        + "{{embed [["
-        + highlight_file
-        + "]]}}"
-    ).strip()
+    pprint(data)
 
-    if entry_path.exists() and not confirm_action(f"File {entry_path} already exists. Overwrite?"):
-        return
-    if pdf_path.exists() and not confirm_action(f"File {pdf_path} already exists. Overwrite?"):
-        return
+    print("📝 Entry:")
+    print(f"\033[33m{entry}\033[0m")
 
-    print(f"🖊 Writting to {file_name} and {entry_path}")
+    pdf_url = data["pdf_url"]
+    if pdf_url is None:
+        rprint("[red]Could not find a pdf automatically![/]")
+        pdf_url = input("Please provide an url or a local path to the PDF: ")
+
+    rprint(f"🖊 Writting to [yellow]{pdf_path}[/] and [yellow]{entry_path}[/]")
+    if entry_path.exists():
+        print("⚠ File {entry_path} already exists. Overwrite?")
+    if pdf_path.exists():
+        print("⚠ File {pdf_path} already exists. Overwrite?")
+
+    if not confirm_action("Do you want to continue?"):
+        exit(1)
+
+    if pdf_url.startswith("http"):
+        print("📄 Downloading PDF...")
+        response = requests.get(data["pdf_url"])
+        pdf_path.write_bytes(response.content)
+    else:  # Just copy
+        pdf_path.write_bytes(Path(pdf_url).read_bytes())
+
     entry_path.write_text(entry)
-    print(f"📄 Downloading PDF to {pdf_path}")
-    response = requests.get(data["pdf"])
-    pdf_path.write_bytes(response.content)
 
     print(f"✅ Saved as [[{file_name}]] in Logseq.")
 
