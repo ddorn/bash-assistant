@@ -5,4 +5,4 @@
 
 # The {q} string is replaced by the query string
 # Then we pass args 2:... to jq
-echo '' | fzf-tmux -p '80%' --print-query --preview "cat ${1} | jq {q} ${@:2}"
+echo '' | fzf-tmux -p '80%' --print-query --preview "cat '${1}' | jq {q} ${@:2}"
