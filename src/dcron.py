@@ -65,7 +65,7 @@ class Dcron:
                 try:
                     info["func"]()
                 except Exception as e:
-                    errors.append((name, e))
+                    errors.append(e)
                     print(f"❌ {name}: {e}")
                     traceback.print_exc()
 
@@ -96,7 +96,7 @@ def log_battery():
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     info = subprocess.check_output(["acpi", "-b"], text=True).strip()
     level = re.search(r"(\d+)%", info).group(1)
-    status = re.search(r"Charging|Discharging", info).group(0)
+    status = re.search(r"Charging|Discharging|Not charging", info).group(0)
     estimated = re.search(r"\d+:\d+:\d+", info)
     estimated = estimated.group(0) if estimated else ""
 
@@ -138,7 +138,9 @@ def go_to_sleep(
         utils.notify("Go to sleep!", f"Shutting down in {minutes} minutes.")
     elif is_in_order(shutdown, now, end):
         if snooze_file.exists() and (
-            snooze_file.read_text().strip() == "SKIP" or random.random() < 0.8
+            # snooze_file.read_text().strip() == "SKIP" or
+            random.random()
+            < 0.8
         ):
             snooze_file.unlink()
             utils.notify("You do you.", "Remember you are happier when you sleep enough 😘🧡💜")
@@ -146,8 +148,8 @@ def go_to_sleep(
             commands = f"""
             playerctl pause || true
             # Max volume & unmute
-            pactl set-sink-volume @DEFAULT_SINK@ 100%
-            pactl set-sink-mute @DEFAULT_SINK@ 0
+            # pactl set-sink-volume @DEFAULT_SINK@ 100%
+            # pactl set-sink-mute @DEFAULT_SINK@ 0
             # Play music
             cvlc --play-and-exit --no-loop --no-volume-save "{good_night_music}"
             # Hibernate

@@ -14,6 +14,7 @@ DEFAULT_NAME = "Untitled"
 
 
 def approx_text_height(text: str) -> int:
+    """Number of lines, with lines over 50 chars counting more"""
     height = 0
     for line in text.split("\n"):
         height += 1 + len(line) // 50
@@ -148,7 +149,12 @@ class Chat:
                     self.generate(regenerate_idx=i)
                 elif edit_mode or is_user or is_system:
                     height = 15 * max(4, approx_text_height(message["content"]))
-                    new = st.text_area(name, message["content"], key=f"content-{i}", height=height)
+                    height = max(68, height)  # Streamlit needs at least 68px
+                    new = st.text_area(
+                        name,
+                        message["content"],
+                        key=f"content-{i}",
+                    )  # height=height)
                     if new != message["content"]:
                         self.edit(i, new)
                 else:
