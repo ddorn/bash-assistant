@@ -160,6 +160,25 @@ def go_to_sleep(
         pass
 
 
+@every(minutes=1)
+def no_code_at_home():
+    # Check if I'm at home, on home network. If so kill vscode
+    wifi_network = subprocess.check_output(
+        "nmcli connection show --active | grep wifi | awk '{print $1}'", shell=True, text=True
+    ).strip()
+
+    home_networks = [
+        "Freebox-23D444",
+    ]
+
+    if wifi_network in home_networks:
+        # Warn and kill vscode & nvim in a minute
+        utils.notify("No coding at home!", "You're at home, enjoy your time!", urgency="critical")
+        # lock screen in red
+        subprocess.run("swaylock -c FF0000", shell=True)
+        subprocess.run("sleep 50 && killall code nvim", shell=True)
+
+
 # @every(minutes=1)
 def screenshot():
     SCREENSHOTS = utils.DATA / "screenshots"
