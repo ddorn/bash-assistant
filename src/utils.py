@@ -314,7 +314,7 @@ def estimate_cost(messages: list[dict], model: str) -> CostEstimation:
 
     import tiktoken
 
-    input_cost, output_cost = constants.MODELS_COSTS[model]
+    input_cost, output_cost = constants.ALL_MODELS_COSTS[model]
 
     try:
         encoding = tiktoken.encoding_for_model(model)
