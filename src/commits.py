@@ -161,7 +161,7 @@ def commit(
     message = commit.to_string()
 
     if commit_file:
-        commit_file.write_text(message)
+        commit_file.write_text(message + "\n" + commit_file.read_text())
     else:
         # Print in yellow to make it stand out.
         print(f"\n\033[33m{message}\033[0m")
