@@ -29,6 +29,7 @@ dependencies = [
     "inquirerpy>=0.3.4",
     "chainlit>=1.1.402",
     "ovh>=1.2.0",
+    "litellm>=1.63.14",
 ]
 
 [dependency-groups]
