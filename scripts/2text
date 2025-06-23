@@ -1,0 +1,304 @@
+#!/usr/bin/env python
+
+"""
+An interactive audio recorder and transcriber with an optional rewrite step.
+
+Records audio and transcribes it using a selected provider (Groq or OpenAI).
+- In interactive mode, it shows a live UI to control recording and options.
+- In non-interactive mode, it transcribes a given audio file.
+- Optionally rewrites the transcript for clarity and formatting using an LLM.
+"""
+import os
+import subprocess
+import time
+from dataclasses import dataclass, field
+from pathlib import Path
+
+import typer
+from rich.console import Console
+from rich.text import Text
+
+from textual.app import App, ComposeResult
+from textual.widgets import Footer, Header, Static
+
+
+# --- State Management ---
+@dataclass
+class AppState:
+    """Holds the dynamic state of the application."""
+
+    provider: str = "groq"
+    language: str | None = None
+    output_file: Path | None = None
+    start_time: float = field(default_factory=time.time)
+    rewrite: bool = False
+
+    @property
+    def model_name(self) -> str:
+        """Returns the transcription model name based on the provider."""
+        if self.provider == "openai":
+            return "openai/whisper-1"
+        return "groq/whisper-large-v3"
+
+    def get_duration(self) -> str:
+        """Returns the formatted recording duration."""
+        return f"{time.time() - self.start_time:.1f}s"
+
+    def get_file_size_str(self) -> str:
+        """Returns the formatted file size as a string."""
+        if self.output_file and self.output_file.exists():
+            size_bytes = self.output_file.stat().st_size
+            if size_bytes < 1024:
+                return f"{size_bytes} B"
+            elif size_bytes < 1024 * 1024:
+                return f"{size_bytes / 1024:.1f} KB"
+            else:
+                return f"{size_bytes / (1024 * 1024):.1f} MB"
+        return "0 B"
+
+
+# --- Textual Application for Interactive Mode ---
+class TranscriberApp(App):
+    """A Textual app for interactive recording."""
+
+    ENABLE_COMMAND_PALETTE = False
+
+    BINDINGS = [
+        ("e", "transcribe('en')", "English"),
+        ("f", "transcribe('fr')", "French"),
+        ("p", "toggle_provider", "Provider"),
+        ("r", "toggle_rewrite", "Rewrite"),
+        ("q", "quit", "Quit"),
+    ]
+
+    def __init__(self, state: AppState):
+        super().__init__()
+        self.state = state
+        self.recording_process: subprocess.Popen | None = None
+
+    def compose(self) -> ComposeResult:
+        yield Static(id="info_file")
+        yield Static(id="info_stats")
+        yield Static(id="info_provider")
+        yield Static(id="info_rewrite")
+        yield Static()  # Spacer
+        yield Footer()
+
+    def on_mount(self) -> None:
+        """Start the recording and the UI timer."""
+        # Set the static file path line
+        file_info_widget = self.query_one("#info_file", Static)
+        file_info_text = Text("Recording to ")
+        file_info_text.append(str(self.state.output_file.resolve()), style="cyan")
+        file_info_widget.update(file_info_text)
+
+        # Set the initial provider line and start the stats timer
+        self.update_provider_display()
+        self.update_rewrite_display()
+        self.update_timer = self.set_interval(1 / 10, self.update_stats)
+        self.start_recording()
+
+    def update_stats(self) -> None:
+        """Update the stats display."""
+        try:
+            stats_widget = self.query_one("#info_stats", Static)
+            stats_text = Text("Stats: ")
+            stats_text.append(
+                f"Duration: {self.state.get_duration()} | Size: {self.state.get_file_size_str()}"
+            )
+            stats_widget.update(stats_text)
+        except Exception:
+            pass  # Can happen during shutdown
+
+    def update_provider_display(self) -> None:
+        """Update the provider display."""
+        try:
+            provider_widget = self.query_one("#info_provider", Static)
+            provider_text = Text("Provider: ")
+            provider_text.append(self.state.provider.capitalize(), style="green")
+            provider_widget.update(provider_text)
+        except Exception:
+            pass
+
+    def update_rewrite_display(self) -> None:
+        """Update the rewrite status display."""
+        try:
+            rewrite_widget = self.query_one("#info_rewrite", Static)
+            status = "On" if self.state.rewrite else "Off"
+            style = "green" if self.state.rewrite else "red"
+            rewrite_text = Text("Rewrite: ")
+            rewrite_text.append(status, style=style)
+            rewrite_widget.update(rewrite_text)
+        except Exception:
+            pass
+
+    def start_recording(self):
+        """Starts the ffmpeg recording process."""
+        ffmpeg_cmd = [
+            "ffmpeg",
+            "-f",
+            "alsa",
+            "-i",
+            "default",
+            "-acodec",
+            "libmp3lame",
+            "-ab",
+            "128k",
+            "-y",
+            str(self.state.output_file),
+        ]
+        self.recording_process = subprocess.Popen(
+            ffmpeg_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+        )
+
+    def stop_recording(self):
+        """Stops the ffmpeg recording process."""
+        if self.recording_process and self.recording_process.poll() is None:
+            self.recording_process.terminate()
+            self.recording_process.wait(timeout=2)
+            if self.recording_process.poll() is None:  # Force kill if terminate fails
+                self.recording_process.kill()
+
+    def action_transcribe(self, lang: str) -> None:
+        """Stop recording and exit the app with a selected language."""
+        self.state.language = lang
+        self.stop_recording()
+        self.exit(self.state)
+
+    def action_toggle_provider(self) -> None:
+        """Toggle the transcription provider."""
+        self.state.provider = "openai" if self.state.provider == "groq" else "groq"
+        self.update_provider_display()
+
+    def action_toggle_rewrite(self) -> None:
+        """Toggle the rewrite mode."""
+        self.state.rewrite = not self.state.rewrite
+        self.update_rewrite_display()
+
+    def action_quit(self) -> None:
+        """Quit the application without transcribing."""
+        self.state.language = None
+        self.stop_recording()
+        self.exit(self.state)
+
+
+# --- Core Logic ---
+def copy_to_clipboard(text: str):
+    """Copies the given text to the system clipboard."""
+    if os.environ.get("WAYLAND_DISPLAY"):
+        cmd = ["wl-copy"]
+    else:
+        cmd = ["xclip", "-selection", "clipboard"]
+    subprocess.run(cmd, input=text, encoding="utf-8")
+
+
+def _rewrite_transcript(console: Console, transcript: str) -> str:
+    """Rewrites the transcript using an LLM for clarity and formatting."""
+    from dotenv import load_dotenv
+    from litellm import completion
+
+    load_dotenv()
+
+    console.print("✍️  Rewriting transcript...", end="")
+    rewrite_start = time.time()
+    system_prompt = (
+        "You are an expert editor. Your sole task is to silently correct the following text. "
+        "Fix any transcription errors, punctuation, and capitalization. Format it into clean paragraphs. "
+        "**Only output the corrected text.** Do not add comments, explanations, or any meta-text. "
+        "The output should be a clean, corrected version of the original text, ready to be copied and pasted directly."
+    )
+
+    response = completion(
+        model="groq/llama3-70b-8192",
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": transcript},
+        ],
+        temperature=0.1,
+    )
+    rewritten_text = response.choices[0].message.content.strip()
+    rewrite_duration = time.time() - rewrite_start
+    console.print(f" {rewrite_duration:.2f}s ✓")
+    return rewritten_text
+
+
+def _transcribe_audio(console: Console, file_path: Path, state: AppState):
+    """Handles the transcription process and prints the result."""
+    from dotenv import load_dotenv
+    from litellm import transcription
+
+    load_dotenv()
+
+    console.print(f"🎤 Transcribing with [bold]{state.provider}[/bold]...", end="")
+    transcribe_start = time.time()
+
+    with open(file_path, "rb") as audio_file:
+        response = transcription(
+            model=state.model_name,
+            file=audio_file,
+            language=state.language,
+        )
+    text = response["text"].strip()
+    transcribe_duration = time.time() - transcribe_start
+    console.print(f" {transcribe_duration:.2f}s ✓")
+
+    if state.rewrite:
+        text = _rewrite_transcript(console, text)
+
+    console.print(f"\n[bold]Transcript:[/bold]\n{text}")
+
+    copy_to_clipboard(text)
+    console.print("\n[dim]Transcript copied to clipboard.[/dim]")
+
+
+# --- Main Application ---
+def main(
+    file: str | None = typer.Argument(None, help="Path to an audio file to transcribe directly."),
+    language: str = typer.Option(None, "-l", "--language", help="Language of the audio."),
+    provider: str = typer.Option(
+        "groq", "--provider", help="API provider to use ('groq' or 'openai')."
+    ),
+    rewrite: bool = typer.Option(False, "--rewrite", help="Rewrite the transcript for clarity."),
+):
+    """
+    An interactive audio recorder and transcriber.
+    Run without arguments to start an interactive recording session.
+    """
+    console = Console()
+    state = AppState(provider=provider, language=language, rewrite=rewrite)
+
+    # --- Non-Interactive (File-based) Mode ---
+    if file:
+        if file.upper() == "LAST":
+            recordings = sorted(Path("/tmp").glob("recording-*.mp3"))
+            if not recordings:
+                console.print("[red]Error: No 'LAST' recording found in /tmp.[/red]")
+                raise typer.Exit(1)
+            audio_file_path = recordings[-1]
+            console.print(f"Using last recording: [cyan]{audio_file_path}[/cyan]")
+        else:
+            audio_file_path = Path(file)
+
+        if not audio_file_path.exists():
+            console.print(f"[red]Error: File not found: {audio_file_path}[/red]")
+            raise typer.Exit(1)
+
+        _transcribe_audio(console, audio_file_path, state)
+        return
+
+    # --- Interactive Mode ---
+    state.output_file = Path(f"/tmp/recording-{time.strftime('%Y-%m-%d-%H-%M-%S')}.mp3")
+
+    app = TranscriberApp(state)
+    final_state = app.run(inline=True)
+
+    console.clear()
+    if final_state and final_state.language:
+        console.print(f"✅ Recording finished. File: [cyan]{final_state.output_file}[/cyan]")
+        _transcribe_audio(console, final_state.output_file, final_state)
+    else:
+        console.print(f"❌ Recording cancelled. File: [cyan]{state.output_file}[/cyan]")
+
+
+if __name__ == "__main__":
+    typer.run(main)
