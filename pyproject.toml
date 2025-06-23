@@ -30,6 +30,7 @@ dependencies = [
     "chainlit>=1.1.402",
     "ovh>=1.2.0",
     "litellm>=1.63.14",
+    "python-dotenv>=1.0.1",
 ]
 
 [dependency-groups]
