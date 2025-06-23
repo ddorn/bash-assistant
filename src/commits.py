@@ -2,7 +2,7 @@ import re
 import subprocess
 from pathlib import Path
 
-import openai
+import litellm
 import typer
 from pydantic import BaseModel
 
@@ -143,20 +143,13 @@ def commit(
     if not utils.confirm_cost(messages, model, max_cost):
         return
 
-    answer = (
-        openai.beta.chat.completions.parse(
-            messages=messages,
-            model=model,
-            response_format=CommitModel,
-        )
-        .choices[0]
-        .message
+    response = litellm.completion(
+        messages=messages,
+        model=model,
+        response_format=CommitModel,
     )
-    commit = answer.parsed
-
-    if commit is None:
-        print("Generated (invalid) JSON:", answer.content)
-        exit(1)
+    answer = response.choices[0].message.content
+    commit = CommitModel.model_validate_json(answer)
 
     message = commit.to_string()
 
