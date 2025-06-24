@@ -4,7 +4,7 @@ import random
 import re
 import subprocess
 from textwrap import dedent
-from time import time
+from time import time, sleep
 import json
 import traceback
 import utils
@@ -112,7 +112,7 @@ def log_battery():
 @every(minutes=7)
 def go_to_sleep(
     notify: str = "20:00",
-    shutdown: str = "22:00",
+    shutdown: str = "22:30",
     end: str = "07:00",
     snooze_file: Path = Path("/tmp/no_sleep_today"),
     good_night_music: Path = utils.DATA / "goodnight.mp3",
@@ -138,45 +138,75 @@ def go_to_sleep(
         utils.notify("Go to sleep!", f"Shutting down in {minutes} minutes.")
     elif is_in_order(shutdown, now, end):
         if snooze_file.exists() and (
-            # snooze_file.read_text().strip() == "SKIP" or
-            random.random()
-            < 0.8
+            snooze_file.read_text().strip() == "SKIP" or random.random() < 0.8
         ):
             snooze_file.unlink()
-            utils.notify("You do you.", "Remember you are happier when you sleep enough 😘🧡💜")
+            utils.notify(
+                "You do you.",
+                "Remember you are happier when you sleep enough 😘🧡💜",
+                urgency="critical",
+            )
         else:
             commands = f"""
             playerctl pause || true
-            # Max volume & unmute
+
+            # Unmute
+            pactl set-sink-mute @DEFAULT_SINK@ 0
+            # Increase volume by 5%
+            pactl set-sink-volume @DEFAULT_SINK@ +5%
             # pactl set-sink-volume @DEFAULT_SINK@ 100%
-            # pactl set-sink-mute @DEFAULT_SINK@ 0
+
             # Play music
             cvlc --play-and-exit --no-loop --no-volume-save "{good_night_music}"
+
             # Hibernate
-            systemctl hibernate
+            # systemctl hibernate
+            shutdown
             """
             subprocess.run(dedent(commands), shell=True)
     else:
         pass
 
 
-@every(minutes=1)
+# @every(minutes=1)
 def no_code_at_home():
+    home_networks = [
+        # "Freebox-23D444",
+    ]
+
+    forbidden_processes = ["code", "nvim"]
+
     # Check if I'm at home, on home network. If so kill vscode
     wifi_network = subprocess.check_output(
         "nmcli connection show --active | grep wifi | awk '{print $1}'", shell=True, text=True
     ).strip()
 
-    home_networks = [
-        "Freebox-23D444",
-    ]
+    if wifi_network not in home_networks:
+        return
 
-    if wifi_network in home_networks:
-        # Warn and kill vscode & nvim in a minute
-        utils.notify("No coding at home!", "You're at home, enjoy your time!", urgency="critical")
-        # lock screen in red
-        subprocess.run("swaylock -c FF0000", shell=True)
-        subprocess.run("sleep 50 && killall code nvim", shell=True)
+    # if none running, abort
+    running = subprocess.check_output("ps -A", shell=True, text=True)
+    if not any(p in running for p in forbidden_processes):
+        return
+
+    # Warn and kill vscode & nvim in a minute
+    utils.notify("No coding at home!", "You're at home, enjoy your time!", urgency="critical")
+    # lock screen in red
+    subprocess.run("swaylock -c FF0000 --config /none", shell=True)
+    subprocess.run("sleep 50 && killall code nvim", shell=True)
+
+
+# @every(minutes=1)
+def keep_pucoti():
+    # Launch pucoti if not running
+    if subprocess.run("pgrep pucoti", shell=True).returncode:
+        utils.notify("Pucoti not running", "Starting it now")
+        # Run pucoti, detached from this script
+        proc = subprocess.Popen("uv tool run pucoti", shell=True)
+        # Wait for it to start
+        sleep(5)
+        if proc.poll():
+            utils.notify("Pucoti failed to start", "Check logs")
 
 
 # @every(minutes=1)
@@ -190,7 +220,7 @@ def screenshot():
     subprocess.check_call(["grim", str(path)])
 
 
-@every(minutes=45)
+# @every(minutes=45)
 def random_background():
     pass
 

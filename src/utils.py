@@ -133,6 +133,8 @@ def ai_chat(
         )
         return message.content[0].text
     else:
+        if "o3" in model:
+            kwargs.pop("temperature", None)
         response = openai.chat.completions.create(
             model=constants.OPENAI_MODEL,
             messages=messages,
@@ -192,6 +194,7 @@ def ai_stream(
     if "claude" in model:
         if system:
             del messages[0]
+            kwargs["system"] = system
 
         if messages[-1]["role"] == "assistant":
             yield messages[-1]["content"]
@@ -200,7 +203,6 @@ def ai_stream(
         with anthropic_client.messages.stream(
             model=model,
             messages=messages,
-            system=system,
             **kwargs,
         ) as stream:
             for text in stream.text_stream:
@@ -216,6 +218,8 @@ def ai_stream(
         yield response.choices[0].message.content
 
     else:
+        if "o3" in model:
+            kwargs.pop("temperature", None)
         response = openai.chat.completions.create(
             model=model,
             messages=messages,

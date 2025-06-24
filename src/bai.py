@@ -133,7 +133,7 @@ def callback(ctx: typer.Context, anthropic: bool = False):
 
 
 @app.command(name="bash")
-def bash_scaffold(model: str = "gpt-4-turbo"):
+def bash_scaffold(model: str = "claude-sonnet-4-20250514"):
     """A bash assistant that can run commands and answer questions about the system."""
 
     import prompt_toolkit as pt
