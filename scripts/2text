@@ -152,9 +152,9 @@ class TranscriberApp(App):
         ("t", "transcribe(False, False)", "Transcribe"),
         ("r", "transcribe(True, False)", "Rewrite"),
         ("c", "transcribe(True, True)", "Rewrite w/ Context"),
-        ("l", "toggle_language", "Language"),
-        ("p", "toggle_provider", "Audio Provider"),
-        ("s", "toggle_rewrite_provider", "Rewrite Provider"),
+        ("l", "toggle_language", ""),
+        ("p", "toggle_provider", ""),
+        ("s", "toggle_rewrite_provider", ""),
         ("q", "quit", "Quit"),
     ]
 
@@ -170,7 +170,6 @@ class TranscriberApp(App):
         yield Static(id="info_provider")
         yield Static(id="info_rewrite_provider")
         yield Static(id="info_language")
-        yield Static()  # Spacer
         yield Footer()
 
     def on_mount(self) -> None:
@@ -208,24 +207,21 @@ class TranscriberApp(App):
     def update_provider_display(self) -> None:
         """Update the provider display."""
         provider_widget = self.query_one("#info_provider", Static)
-        provider_text = Text("Audio Provider: ")
-        provider_text.append(self.state.provider.capitalize(), style="green")
-        provider_widget.update(provider_text)
+        markup = f" [bold #FFA62B]p[/] Audio Provider: [green]{self.state.provider}[/]"
+        provider_widget.update(Text.from_markup(markup))
 
     def update_rewrite_provider_display(self) -> None:
         """Update the rewrite provider display."""
         provider_widget = self.query_one("#info_rewrite_provider", Static)
-        provider_text = Text("Rewrite Provider: ")
-        provider_text.append(self.state.rewrite_provider, style="magenta")
-        provider_widget.update(provider_text)
+        markup = f" [bold #FFA62B]s[/] Rewrite Provider: [magenta]{self.state.rewrite_provider}[/]"
+        provider_widget.update(Text.from_markup(markup))
 
     def update_language_display(self) -> None:
         """Update the language display."""
         language_widget = self.query_one("#info_language", Static)
         lang_text = self.state.language if self.state.language else "auto"
-        language_display_text = Text("Language: ")
-        language_display_text.append(lang_text, style="blue")
-        language_widget.update(language_display_text)
+        markup = f" [bold #FFA62B]l[/] Language: [blue]{lang_text}[/]"
+        language_widget.update(Text.from_markup(markup))
 
     def start_recording(self):
         """Starts the ffmpeg recording process, capturing stderr for error reporting."""
@@ -377,18 +373,20 @@ def rewrite_transcript(
 
     console.print("✍️  Rewriting transcript...", end="")
     rewrite_start = time.time()
-    system_prompt = (
-        "You are an expert editor. Your sole task is to silently correct the following text. "
-        "Fix any transcription errors, punctuation, and capitalization. Format it into clean paragraphs. "
-        "You may be provided with an image as context. Use it to improve the accuracy of the transcription, for spelling of names, technical terms, or code. "
-        "**Only output the corrected text.** Do not add comments, explanations, or any meta-text. "
-        "The output should be a clean, corrected version of the original text, ready to be copied and pasted directly."
-    )
+    system_prompt = """You are an expert editor. Your sole task is to silently correct the text between <transcript> and </transcript>.
+
+Fix any transcription errors, punctuation, and capitalization. Format it into clean paragraphs.
+
+You may be provided with an image as context. Use it to improve the accuracy of the transcription, for spelling of names, technical terms, or code.
+Do not transcribe the image, just use it for context.
+
+**Only output the corrected text.** Do not add comments, explanations, or any meta-text.
+The output should be a clean, corrected version of the original text, ready to be copied and pasted directly."""
 
     messages = [{"role": "system", "content": system_prompt}]
     if image_bytes:
         base64_image = base64.b64encode(image_bytes).decode("utf-8")
-        user_text = f"Please correct and format this transcript. Use the attached screenshot for context (e.g., for spelling of names, technical terms, etc.).\n\n---\n\n<transcript>\n{transcript}\n</transcript>"
+        user_text = f"Please correct and format this transcript. Use the attached screenshot for context (e.g., for spelling of names, technical terms, etc.).\n\n---\n\n<transcript>\n{transcript}\n</transcript>\n\nCorrected transcript:"
         user_content = [
             {
                 "type": "image_url",
@@ -586,7 +584,6 @@ def main(
     app = TranscriberApp(state)
     final_state = app.run()
 
-    console.clear()
     if isinstance(final_state, RecordingError):
         console.print(final_state, markup=False)
         console.print("[bold red]❌ Recording failed unexpectedly.[/bold red]")
