@@ -9,6 +9,7 @@ Records audio and transcribes it using a selected provider (Groq or OpenAI).
 - Optionally rewrites the transcript for clarity and formatting using an LLM.
 """
 import os
+import shutil
 import subprocess
 import time
 from dataclasses import dataclass, field
@@ -20,6 +21,8 @@ from rich.text import Text
 
 from textual.app import App, ComposeResult
 from textual.widgets import Footer, Header, Static
+
+from dotenv import load_dotenv
 
 
 # --- State Management ---
@@ -192,12 +195,9 @@ def copy_to_clipboard(text: str):
     subprocess.run(cmd, input=text, encoding="utf-8")
 
 
-def _rewrite_transcript(console: Console, transcript: str) -> str:
+def rewrite_transcript(console: Console, transcript: str) -> str:
     """Rewrites the transcript using an LLM for clarity and formatting."""
-    from dotenv import load_dotenv
     from litellm import completion
-
-    load_dotenv()
 
     console.print("✍️  Rewriting transcript...", end="")
     rewrite_start = time.time()
@@ -214,7 +214,6 @@ def _rewrite_transcript(console: Console, transcript: str) -> str:
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": transcript},
         ],
-        temperature=0.1,
     )
     rewritten_text = response.choices[0].message.content.strip()
     rewrite_duration = time.time() - rewrite_start
@@ -222,7 +221,7 @@ def _rewrite_transcript(console: Console, transcript: str) -> str:
     return rewritten_text
 
 
-def _transcribe_audio(console: Console, file_path: Path, state: AppState):
+def transcribe_audio(console: Console, file_path: Path, state: AppState):
     """Handles the transcription process and prints the result."""
     from dotenv import load_dotenv
     from litellm import transcription
@@ -243,12 +242,32 @@ def _transcribe_audio(console: Console, file_path: Path, state: AppState):
     console.print(f" {transcribe_duration:.2f}s ✓")
 
     if state.rewrite:
-        text = _rewrite_transcript(console, text)
+        text = rewrite_transcript(console, text)
 
     console.print(f"\n[bold]Transcript:[/bold]\n{text}")
 
     copy_to_clipboard(text)
     console.print("\n[dim]Transcript copied to clipboard.[/dim]")
+
+
+def check_dependencies(console: Console):
+    """Checks for required command-line tools and API keys."""
+    load_dotenv()
+
+    # Check for ffmpeg
+    if not shutil.which("ffmpeg"):
+        console.print("[bold red]Error: ffmpeg not found.[/bold red]")
+        console.print("Please install ffmpeg and ensure it's in your system's PATH.")
+        console.print("  - On Debian/Ubuntu: sudo apt update && sudo apt install ffmpeg")
+        console.print("  - On macOS (with Homebrew): brew install ffmpeg")
+        raise typer.Exit(code=1)
+
+    # Check for API keys
+    if not os.environ.get("GROQ_API_KEY") and not os.environ.get("OPENAI_API_KEY"):
+        console.print("[bold red]Error: API key not found.[/bold red]")
+        console.print("Please set either GROQ_API_KEY or OPENAI_API_KEY in your environment.")
+        console.print("You can add them to a `.env` file in the project root.")
+        raise typer.Exit(code=1)
 
 
 # --- Main Application ---
@@ -265,6 +284,7 @@ def main(
     Run without arguments to start an interactive recording session.
     """
     console = Console()
+    check_dependencies(console)
     state = AppState(provider=provider, language=language, rewrite=rewrite)
 
     # --- Non-Interactive (File-based) Mode ---
@@ -283,7 +303,7 @@ def main(
             console.print(f"[red]Error: File not found: {audio_file_path}[/red]")
             raise typer.Exit(1)
 
-        _transcribe_audio(console, audio_file_path, state)
+        transcribe_audio(console, audio_file_path, state)
         return
 
     # --- Interactive Mode ---
@@ -295,7 +315,7 @@ def main(
     console.clear()
     if final_state and final_state.language:
         console.print(f"✅ Recording finished. File: [cyan]{final_state.output_file}[/cyan]")
-        _transcribe_audio(console, final_state.output_file, final_state)
+        transcribe_audio(console, final_state.output_file, final_state)
     else:
         console.print(f"❌ Recording cancelled. File: [cyan]{state.output_file}[/cyan]")
 
