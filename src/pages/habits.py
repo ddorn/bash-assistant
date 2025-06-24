@@ -45,10 +45,12 @@ def identify_active_habits(df, days_back=30):
     return active_habits
 
 
-def prepare_weekly_data(df, active_habits, weeks_back=6):
+def prepare_weekly_data(df, active_habits, start_date):
     """Prepare weekly aggregated data for active habits"""
+    # Filter data from start_date onwards (using Monday of that week)
+    df = filter_by_start_date(df, start_date)
+
     # Add week information
-    df = df.copy()
     df["Year"] = df["Date"].dt.year
     df["Week"] = df["Date"].dt.isocalendar().week
     df["YearWeek"] = df["Year"].astype(str) + "-W" + df["Week"].astype(str).str.zfill(2)
@@ -62,11 +64,8 @@ def prepare_weekly_data(df, active_habits, weeks_back=6):
     else:
         complete_weeks = unique_weeks
 
-    # Get recent complete weeks
-    if len(complete_weeks) >= weeks_back:
-        target_weeks = complete_weeks[-weeks_back:]
-    else:
-        target_weeks = complete_weeks
+    # Use all complete weeks from the start date
+    target_weeks = complete_weeks
 
     # Filter to target weeks and active habits
     weekly_df = df[df["YearWeek"].isin(target_weeks)].copy()
@@ -330,12 +329,8 @@ def calculate_performance_summary(weekly_df, active_habits):
     }
 
 
-def calculate_habit_correlations(df, active_habits, weeks_back=6):
+def calculate_habit_correlations(df_filtered, active_habits):
     """Calculate correlations between habits"""
-    # Filter to the selected time period
-    most_recent = df["Date"].max()
-    cutoff_date = most_recent - timedelta(weeks=weeks_back)
-    df_filtered = df[df["Date"] >= cutoff_date].copy()
 
     # Filter to active habits and convert to numeric (2=done, 0=not done, ignore -1)
     habit_data = df_filtered[active_habits].copy()
@@ -361,12 +356,8 @@ def calculate_habit_correlations(df, active_habits, weeks_back=6):
     return corr_matrix, correlations[:5] + correlations[-5:]
 
 
-def calculate_weekday_patterns(df, active_habits, weeks_back=6):
+def calculate_weekday_patterns(df_filtered, active_habits):
     """Calculate performance by weekday"""
-    # Filter to the selected time period
-    most_recent = df["Date"].max()
-    cutoff_date = most_recent - timedelta(weeks=weeks_back)
-    df_filtered = df[df["Date"] >= cutoff_date].copy()
 
     df_filtered["Weekday"] = df_filtered["Date"].dt.day_name()
 
@@ -379,16 +370,10 @@ def calculate_weekday_patterns(df, active_habits, weeks_back=6):
 
         for habit in active_habits:
             if habit in day_data.columns:
-                habit_values = day_data[habit].dropna()
-                tracked_values = habit_values[habit_values != -1]
-
-                if len(tracked_values) > 0:
-                    completions = len(tracked_values[tracked_values == 2])
-                    rate = completions / len(tracked_values)
-                else:
-                    rate = 0
-
-                day_rates.append(rate)
+                completions, total_days, completion_rate = calculate_habit_completion_stats(
+                    day_data[habit]
+                )
+                day_rates.append(completion_rate)
 
         weekday_stats[weekday] = day_rates
 
@@ -507,19 +492,15 @@ def create_weekday_heatmap(weekday_stats, weekdays, active_habits):
     return fig
 
 
-def calculate_daily_completion_rates(df, active_habits, weeks_back=6):
+def calculate_daily_completion_rates(df_filtered, active_habits):
     """Calculate daily completion rates over time"""
-    # Get recent data based on weeks_back parameter
-    most_recent = df["Date"].max()
-    cutoff_date = most_recent - timedelta(weeks=weeks_back)
-    recent_df = df[df["Date"] >= cutoff_date].copy()
 
     # Sort by date
-    recent_df = recent_df.sort_values("Date")
+    df_filtered = df_filtered.sort_values("Date")
 
     daily_rates = []
 
-    for _, row in recent_df.iterrows():
+    for _, row in df_filtered.iterrows():
         date = row["Date"]
         total_completions = 0
         total_tracked = 0
@@ -650,6 +631,256 @@ def create_daily_completion_chart(daily_df):
     return fig
 
 
+def calculate_total_completions(df_filtered, active_habits):
+    """Calculate total completions for each habit over the analysis period"""
+
+    completions = []
+
+    for habit in active_habits:
+        if habit in df_filtered.columns:
+            # Count completions (2) and ignore -1 (not tracked)
+            total_completions, _, _ = calculate_habit_completion_stats(df_filtered[habit])
+
+            completions.append({"Habit": habit, "Total_Completions": total_completions})
+
+    return pd.DataFrame(completions)
+
+
+def create_completions_histogram(completions_df):
+    """Create histogram showing total completions per habit"""
+    # Sort by completion count for better visualization
+    completions_df = completions_df.sort_values("Total_Completions", ascending=True)
+
+    fig = go.Figure()
+
+    # Create bar chart
+    fig.add_trace(
+        go.Bar(
+            x=completions_df["Habit"],
+            y=completions_df["Total_Completions"],
+            name="Total Completions",
+            marker=dict(
+                color=completions_df["Total_Completions"],
+                colorscale="RdYlGn",  # Red to Green scale
+                showscale=True,
+                colorbar=dict(title="Completions"),
+            ),
+            text=completions_df["Total_Completions"],
+            textposition="outside",
+            hovertemplate="<b>%{x}</b><br>" + "Total Completions: %{y}<br>" + "<extra></extra>",
+        )
+    )
+
+    fig.update_layout(
+        title="Total Habit Completions",
+        xaxis_title="Habits",
+        yaxis_title="Number of Completions",
+        height=400,
+        font=dict(size=14),
+        xaxis=dict(tickangle=45),
+        showlegend=False,
+    )
+
+    return fig
+
+
+def calculate_habit_timelines(df):
+    """Calculate timeline data for all habits (first day to last day tracked)"""
+    # Get all habit columns (exclude Date column)
+    habit_cols = [col for col in df.columns if col != "Date"]
+
+    timelines = []
+
+    for habit in habit_cols:
+        # Get all non-null values that are not -1 (not tracked)
+        habit_data = df[df[habit].notna() & (df[habit] != -1)]
+
+        if len(habit_data) > 0:
+            first_date = habit_data["Date"].min()
+            last_date = habit_data["Date"].max()
+
+            # Calculate some stats
+            total_days_tracked = len(habit_data)
+            total_completions = len(habit_data[habit_data[habit] == 2])
+            completion_rate = (
+                (total_completions / total_days_tracked * 100) if total_days_tracked > 0 else 0
+            )
+
+            # Calculate duration in days
+            duration_days = (last_date - first_date).days + 1
+
+            # Determine if habit is currently active (tracked in last 30 days)
+            most_recent = df["Date"].max()
+            cutoff_date = most_recent - timedelta(days=30)
+            is_active = last_date >= cutoff_date
+
+            timelines.append(
+                {
+                    "Habit": habit,
+                    "Start_Date": first_date,
+                    "End_Date": last_date,
+                    "Duration_Days": duration_days,
+                    "Days_Tracked": total_days_tracked,
+                    "Total_Completions": total_completions,
+                    "Completion_Rate": completion_rate,
+                    "Is_Active": is_active,
+                }
+            )
+
+    return pd.DataFrame(timelines)
+
+
+def create_habit_gantt_chart(timelines_df):
+    """Create Gantt chart showing habit timelines"""
+    if len(timelines_df) == 0:
+        return None
+
+    # Sort by start date for better visualization
+    timelines_df = timelines_df.sort_values("Start_Date")
+
+    fig = go.Figure()
+
+    # Add bars for each habit using a different approach
+    for i, row in timelines_df.iterrows():
+        # Create hover text with detailed info
+        hover_text = (
+            f"<b>{row['Habit']}</b><br>"
+            f"Period: {row['Start_Date'].strftime('%Y-%m-%d')} to {row['End_Date'].strftime('%Y-%m-%d')}<br>"
+            f"Duration: {row['Duration_Days']} days<br>"
+            f"Days tracked: {row['Days_Tracked']}<br>"
+            f"Completions: {row['Total_Completions']}<br>"
+            f"Success rate: {row['Completion_Rate']:.1f}%<br>"
+            f"Status: {'🟢 Active' if row['Is_Active'] else '🔴 Inactive'}"
+        )
+
+        # Use Scatter with thick lines to create Gantt bars
+        color = "#2E86AB" if row["Is_Active"] else "#A8A8A8"
+
+        fig.add_trace(
+            go.Scatter(
+                x=[row["Start_Date"], row["End_Date"]],
+                y=[row["Habit"], row["Habit"]],
+                mode="lines",
+                line=dict(color=color, width=20),
+                name=row["Habit"],
+                hovertemplate=hover_text + "<extra></extra>",
+                showlegend=False,
+            )
+        )
+
+    # Add legend manually
+    fig.add_trace(
+        go.Scatter(
+            x=[None],
+            y=[None],
+            mode="markers",
+            marker=dict(size=10, color="#2E86AB"),
+            name="🟢 Active (last 30 days)",
+            showlegend=True,
+        )
+    )
+
+    fig.add_trace(
+        go.Scatter(
+            x=[None],
+            y=[None],
+            mode="markers",
+            marker=dict(size=10, color="#A8A8A8"),
+            name="🔴 Inactive",
+            showlegend=True,
+        )
+    )
+
+    # Add vertical lines for month/quarter markers
+    if len(timelines_df) > 0:
+        start_date = timelines_df["Start_Date"].min()
+        end_date = timelines_df["End_Date"].max()
+        total_months = (end_date.year - start_date.year) * 12 + (end_date.month - start_date.month)
+
+        # Determine marker settings based on timeline length
+        use_quarterly = total_months > 24
+        quarter_months = [1, 4, 7, 10]  # Jan, Apr, Jul, Oct
+        line_opacity = "0.4" if use_quarterly else "0.3"
+
+        # Add time markers
+        current_date = start_date.replace(day=1)
+        while current_date <= end_date:
+            should_add_marker = not use_quarterly or current_date.month in quarter_months
+
+            if should_add_marker:
+                fig.add_vline(
+                    x=current_date,
+                    line_dash="dot",
+                    line_color=f"rgba(128,128,128,{line_opacity})",
+                    line_width=1,
+                )
+
+            # Add year label for January
+            if current_date.month == 1:
+                fig.add_annotation(
+                    x=current_date,
+                    y=1.02,
+                    yref="paper",
+                    text=str(current_date.year),
+                    showarrow=False,
+                    font=dict(size=10, color="gray"),
+                    xanchor="center",
+                )
+
+            # Move to next month
+            if current_date.month == 12:
+                current_date = current_date.replace(year=current_date.year + 1, month=1)
+            else:
+                current_date = current_date.replace(month=current_date.month + 1)
+
+    fig.update_layout(
+        title="Habit Timeline (Gantt Chart)",
+        xaxis_title="Timeline",
+        yaxis_title="Habits",
+        height=max(400, len(timelines_df) * 30 + 200),
+        font=dict(size=12),
+        hovermode="closest",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        xaxis=dict(type="date", tickformat="%Y-%m-%d"),
+        yaxis=dict(categoryorder="array", categoryarray=timelines_df["Habit"].tolist()),
+    )
+
+    return fig
+
+
+def filter_by_start_date(df, start_date):
+    """Helper function to filter dataframe from start_date onwards, adjusted to Monday of that week"""
+    # Convert to datetime if it's a date
+    if hasattr(start_date, "weekday"):
+        start_datetime = pd.to_datetime(start_date)
+    else:
+        start_datetime = start_date
+
+    # Get the Monday of the week containing start_date
+    # weekday() returns 0=Monday, 1=Tuesday, etc.
+    days_since_monday = start_datetime.weekday()
+    monday_of_week = start_datetime - timedelta(days=days_since_monday)
+
+    return df[df["Date"] >= monday_of_week].copy()
+
+
+def calculate_habit_completion_stats(habit_data):
+    """Helper function to calculate completion stats from habit data"""
+    habit_values = habit_data.dropna()
+    tracked_values = habit_values[habit_values != -1]
+
+    if len(tracked_values) > 0:
+        completions = len(tracked_values[tracked_values == 2])
+        total_days = len(tracked_values)
+        completion_rate = completions / total_days if total_days > 0 else 0
+    else:
+        completions = 0
+        total_days = 0
+        completion_rate = 0
+
+    return completions, total_days, completion_rate
+
+
 def main():
     st.set_page_config(page_title="Weekly Habit Analysis", page_icon="📊", layout="wide")
 
@@ -675,19 +906,43 @@ def main():
                     else:
                         st.error(message)
 
-    # Analysis period selector
-    st.sidebar.header("⏰ Analysis Period")
-    weeks_back = st.sidebar.slider(
-        "Number of weeks to analyze",
-        min_value=2,
-        max_value=12,
-        value=6,
-        help="Select how many weeks of data to include in the analysis",
-    )
-
-    # Load data
+        # Load data
     try:
         df, habits_meta = load_data()
+
+        # Analysis period selector (after data is loaded)
+        st.sidebar.header("⏰ Analysis Period")
+
+        # Get date range from data
+        min_date = df["Date"].min().date()
+        max_date = df["Date"].max().date()
+
+        # Default to 6 weeks back from most recent date
+        default_start = max_date - timedelta(weeks=6)
+        if default_start < min_date:
+            default_start = min_date
+
+        start_date = st.sidebar.date_input(
+            "Start date for analysis",
+            value=default_start,
+            min_value=min_date,
+            max_value=max_date,
+            help="Select the starting date for your analysis period. Analysis will start from the Monday of the selected week.",
+        )
+
+        # Calculate and show the actual Monday being used
+        start_datetime = pd.to_datetime(start_date)
+        days_since_monday = start_datetime.weekday()
+        monday_of_week = start_datetime - timedelta(days=days_since_monday)
+
+        if days_since_monday > 0:
+            st.sidebar.info(
+                f"📅 Analysis starts from Monday: {monday_of_week.strftime('%Y-%m-%d')}"
+            )
+        else:
+            st.sidebar.info(
+                f"📅 Analysis starts from: {monday_of_week.strftime('%Y-%m-%d')} (Monday)"
+            )
 
         # Identify active habits
         active_habits = identify_active_habits(df)
@@ -707,7 +962,7 @@ def main():
                     st.sidebar.write(f"• {row['Name']} (every {row['Interval']} days)")
 
         # Prepare weekly data with user-selected period
-        weekly_df, target_weeks = prepare_weekly_data(df, active_habits, weeks_back)
+        weekly_df, target_weeks = prepare_weekly_data(df, active_habits, start_date)
 
         # Most Recent Week Metric at the top
         if len(weekly_df) >= 1:
@@ -799,17 +1054,20 @@ def main():
             if changes_heatmap:
                 st.plotly_chart(changes_heatmap, use_container_width=True)
 
+        # Filter data for the selected time period
+        df_filtered = filter_by_start_date(df, pd.to_datetime(start_date))
+
         # Weekday patterns
         st.subheader("📅 Weekday Performance Patterns")
         st.markdown("*Discover which days of the week work best for your habits*")
-        weekday_stats, weekdays = calculate_weekday_patterns(df, active_habits, weeks_back)
+        weekday_stats, weekdays = calculate_weekday_patterns(df_filtered, active_habits)
         weekday_heatmap = create_weekday_heatmap(weekday_stats, weekdays, active_habits)
         st.plotly_chart(weekday_heatmap, use_container_width=True)
 
         # Daily completion over time
         st.subheader("📈 Daily Completion Trends")
         st.markdown("*Track your overall habit completion percentage day by day*")
-        daily_df = calculate_daily_completion_rates(df, active_habits, weeks_back)
+        daily_df = calculate_daily_completion_rates(df_filtered, active_habits)
         if len(daily_df) > 0:
             daily_chart = create_daily_completion_chart(daily_df)
             st.plotly_chart(daily_chart, use_container_width=True)
@@ -820,7 +1078,7 @@ def main():
         st.subheader("🔗 Habit Correlation Analysis")
         st.markdown("*Discover which habits tend to succeed or fail together*")
 
-        corr_matrix, top_correlations = calculate_habit_correlations(df, active_habits, weeks_back)
+        corr_matrix, top_correlations = calculate_habit_correlations(df_filtered, active_habits)
 
         # Show correlation heatmap
         corr_heatmap = create_correlation_heatmap(corr_matrix, active_habits)
@@ -876,6 +1134,32 @@ def main():
         with st.expander("🔍 View Raw Weekly Data"):
             st.dataframe(weekly_df, use_container_width=True)
 
+        # Total completions for each habit
+        st.subheader("📊 Total Habit Completions")
+        use_all_data = st.checkbox(
+            "📅 Use all historical data (instead of selected time period)",
+            value=False,
+            help="Check this to see total completions across all your data, not just the selected weeks",
+        )
+
+        # Choose data based on checkbox
+        data_for_completions = df if use_all_data else df_filtered
+        completions_df = calculate_total_completions(data_for_completions, active_habits)
+        completions_histogram = create_completions_histogram(completions_df)
+        st.plotly_chart(completions_histogram, use_container_width=True)
+
+        # Habit timelines
+        st.subheader("📅 Habit Timelines")
+        st.markdown(
+            "*Complete history of all your habits - blue bars are currently active, gray bars are discontinued*"
+        )
+        timelines_df = calculate_habit_timelines(df)
+        habit_gantt_chart = create_habit_gantt_chart(timelines_df)
+        if habit_gantt_chart:
+            st.plotly_chart(habit_gantt_chart, use_container_width=True)
+        else:
+            st.info("No timeline data available to display")
+
     except FileNotFoundError as e:
         st.error(
             "Could not find habit data files. Make sure you're running this from the correct directory and that 'habits_data/' folder exists."
@@ -886,5 +1170,4 @@ def main():
         st.exception(e)
 
 
-if __name__ == "__main__":
-    main()
+main()
