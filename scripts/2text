@@ -12,17 +12,50 @@ import os
 import shutil
 import subprocess
 import time
+import json
 from dataclasses import dataclass, field
 from pathlib import Path
 
 import typer
 from rich.console import Console
 from rich.text import Text
+import platformdirs
 
 from textual.app import App, ComposeResult
 from textual.widgets import Footer, Header, Static
 
 from dotenv import load_dotenv
+
+
+# --- Settings Management ---
+def get_settings_path() -> Path:
+    """Returns the path to the settings file."""
+    settings_dir = platformdirs.user_config_path("2text", ensure_exists=True)
+    return settings_dir / "settings.json"
+
+
+def load_settings() -> dict:
+    """Loads settings from the JSON file, returning an empty dict on failure."""
+    settings_path = get_settings_path()
+    if not settings_path.exists():
+        return {}
+    try:
+        with open(settings_path, "r") as f:
+            # Handle empty file case
+            content = f.read()
+            if not content:
+                return {}
+            return json.loads(content)
+    except (json.JSONDecodeError, IOError):
+        return {}
+
+
+def save_settings(state: "AppState"):
+    """Saves relevant settings from the app state to the JSON file."""
+    settings_path = get_settings_path()
+    settings_to_save = {"provider": state.provider, "language": state.language}
+    with open(settings_path, "w") as f:
+        json.dump(settings_to_save, f, indent=2)
 
 
 # --- State Management ---
@@ -31,10 +64,10 @@ class AppState:
     """Holds the dynamic state of the application."""
 
     provider: str = "groq"
-    language: str | None = None
+    language: str | None = "auto"
+    rewrite: bool = False
     output_file: Path | None = None
     start_time: float = field(default_factory=time.time)
-    rewrite: bool = False
 
     @property
     def model_name(self) -> str:
@@ -61,16 +94,19 @@ class AppState:
 
 
 # --- Textual Application for Interactive Mode ---
+LANGUAGES = ["en", "fr", None]  # None is for auto-detection
+
+
 class TranscriberApp(App):
     """A Textual app for interactive recording."""
 
     ENABLE_COMMAND_PALETTE = False
 
     BINDINGS = [
-        ("e", "transcribe('en')", "English"),
-        ("f", "transcribe('fr')", "French"),
+        ("t", "transcribe(False)", "Transcribe"),
+        ("r", "transcribe(True)", "Rewrite"),
+        ("l", "toggle_language", "Language"),
         ("p", "toggle_provider", "Provider"),
-        ("r", "toggle_rewrite", "Rewrite"),
         ("q", "quit", "Quit"),
     ]
 
@@ -83,7 +119,7 @@ class TranscriberApp(App):
         yield Static(id="info_file")
         yield Static(id="info_stats")
         yield Static(id="info_provider")
-        yield Static(id="info_rewrite")
+        yield Static(id="info_language")
         yield Static()  # Spacer
         yield Footer()
 
@@ -97,7 +133,7 @@ class TranscriberApp(App):
 
         # Set the initial provider line and start the stats timer
         self.update_provider_display()
-        self.update_rewrite_display()
+        self.update_language_display()
         self.update_timer = self.set_interval(1 / 10, self.update_stats)
         self.start_recording()
 
@@ -123,15 +159,14 @@ class TranscriberApp(App):
         except Exception:
             pass
 
-    def update_rewrite_display(self) -> None:
-        """Update the rewrite status display."""
+    def update_language_display(self) -> None:
+        """Update the language display."""
         try:
-            rewrite_widget = self.query_one("#info_rewrite", Static)
-            status = "On" if self.state.rewrite else "Off"
-            style = "green" if self.state.rewrite else "red"
-            rewrite_text = Text("Rewrite: ")
-            rewrite_text.append(status, style=style)
-            rewrite_widget.update(rewrite_text)
+            language_widget = self.query_one("#info_language", Static)
+            lang_text = self.state.language if self.state.language else "auto"
+            language_display_text = Text("Language: ")
+            language_display_text.append(lang_text, style="blue")
+            language_widget.update(language_display_text)
         except Exception:
             pass
 
@@ -162,9 +197,9 @@ class TranscriberApp(App):
             if self.recording_process.poll() is None:  # Force kill if terminate fails
                 self.recording_process.kill()
 
-    def action_transcribe(self, lang: str) -> None:
-        """Stop recording and exit the app with a selected language."""
-        self.state.language = lang
+    def action_transcribe(self, rewrite: bool) -> None:
+        """Stop recording and exit the app to transcribe."""
+        self.state.rewrite = rewrite
         self.stop_recording()
         self.exit(self.state)
 
@@ -173,16 +208,20 @@ class TranscriberApp(App):
         self.state.provider = "openai" if self.state.provider == "groq" else "groq"
         self.update_provider_display()
 
-    def action_toggle_rewrite(self) -> None:
-        """Toggle the rewrite mode."""
-        self.state.rewrite = not self.state.rewrite
-        self.update_rewrite_display()
+    def action_toggle_language(self) -> None:
+        """Toggle the transcription language."""
+        try:
+            current_index = LANGUAGES.index(self.state.language)
+            next_index = (current_index + 1) % len(LANGUAGES)
+        except ValueError:
+            next_index = 0  # Default to first language if current is not in list
+        self.state.language = LANGUAGES[next_index]
+        self.update_language_display()
 
     def action_quit(self) -> None:
         """Quit the application without transcribing."""
-        self.state.language = None
         self.stop_recording()
-        self.exit(self.state)
+        self.exit(None)
 
 
 # --- Core Logic ---
@@ -273,11 +312,18 @@ def check_dependencies(console: Console):
 # --- Main Application ---
 def main(
     file: str | None = typer.Argument(None, help="Path to an audio file to transcribe directly."),
-    language: str = typer.Option(None, "-l", "--language", help="Language of the audio."),
-    provider: str = typer.Option(
-        "groq", "--provider", help="API provider to use ('groq' or 'openai')."
+    language: str = typer.Option(
+        None,
+        "-l",
+        "--language",
+        help="Language of the audio. If not provided, the language will be detected automatically.",
     ),
-    rewrite: bool = typer.Option(False, "--rewrite", help="Rewrite the transcript for clarity."),
+    provider: str = typer.Option(
+        None, "--provider", help="API provider to use. Overrides saved setting."
+    ),
+    rewrite: bool = typer.Option(
+        False, "--rewrite", help="Rewrite the transcript for clarity (non-interactive mode only)."
+    ),
 ):
     """
     An interactive audio recorder and transcriber.
@@ -285,10 +331,16 @@ def main(
     """
     console = Console()
     check_dependencies(console)
-    state = AppState(provider=provider, language=language, rewrite=rewrite)
 
     # --- Non-Interactive (File-based) Mode ---
     if file:
+        # Use dataclass defaults, overridden only by CLI args. No config file.
+        state = AppState(rewrite=rewrite)
+        if provider:
+            state.provider = provider
+        if language:
+            state.language = language
+
         if file.upper() == "LAST":
             recordings = sorted(Path("/tmp").glob("recording-*.mp3"))
             if not recordings:
@@ -307,14 +359,22 @@ def main(
         return
 
     # --- Interactive Mode ---
+    # Load saved settings and override with any CLI args
+    saved_settings = load_settings()
+    if provider:
+        saved_settings["provider"] = provider
+    if language:
+        saved_settings["language"] = language
+    state = AppState(**saved_settings)
     state.output_file = Path(f"/tmp/recording-{time.strftime('%Y-%m-%d-%H-%M-%S')}.mp3")
 
     app = TranscriberApp(state)
     final_state = app.run(inline=True)
 
     console.clear()
-    if final_state and final_state.language:
+    if final_state:
         console.print(f"✅ Recording finished. File: [cyan]{final_state.output_file}[/cyan]")
+        save_settings(final_state)
         transcribe_audio(console, final_state.output_file, final_state)
     else:
         console.print(f"❌ Recording cancelled. File: [cyan]{state.output_file}[/cyan]")
