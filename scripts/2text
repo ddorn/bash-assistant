@@ -11,6 +11,7 @@ Records audio and transcribes it using a selected provider (Groq or OpenAI).
 import os
 import shutil
 import subprocess
+import tempfile
 import time
 import json
 from dataclasses import dataclass, field
@@ -25,6 +26,8 @@ from textual.app import App, ComposeResult
 from textual.widgets import Footer, Header, Static
 
 from dotenv import load_dotenv
+
+load_dotenv()
 
 
 # --- Settings Management ---
@@ -93,6 +96,10 @@ class AppState:
         return "0 B"
 
 
+class RecordingError(Exception):
+    """Exception raised when the recording process fails."""
+
+
 # --- Textual Application for Interactive Mode ---
 LANGUAGES = ["en", "fr", None]  # None is for auto-detection
 
@@ -138,40 +145,36 @@ class TranscriberApp(App):
         self.start_recording()
 
     def update_stats(self) -> None:
-        """Update the stats display."""
-        try:
-            stats_widget = self.query_one("#info_stats", Static)
-            stats_text = Text("Stats: ")
-            stats_text.append(
-                f"Duration: {self.state.get_duration()} | Size: {self.state.get_file_size_str()}"
-            )
-            stats_widget.update(stats_text)
-        except Exception:
-            pass  # Can happen during shutdown
+        """Update the stats display and check for recording process failure."""
+        if self.recording_process and self.recording_process.poll() is not None:
+            # The recording process has terminated unexpectedly.
+            error_output = self.recording_process.stderr.read()
+            self.exit(RecordingError(error_output))
+
+        stats_widget = self.query_one("#info_stats", Static)
+        stats_text = Text("Stats: ")
+        stats_text.append(
+            f"Duration: {self.state.get_duration()} | Size: {self.state.get_file_size_str()}"
+        )
+        stats_widget.update(stats_text)
 
     def update_provider_display(self) -> None:
         """Update the provider display."""
-        try:
-            provider_widget = self.query_one("#info_provider", Static)
-            provider_text = Text("Provider: ")
-            provider_text.append(self.state.provider.capitalize(), style="green")
-            provider_widget.update(provider_text)
-        except Exception:
-            pass
+        provider_widget = self.query_one("#info_provider", Static)
+        provider_text = Text("Provider: ")
+        provider_text.append(self.state.provider.capitalize(), style="green")
+        provider_widget.update(provider_text)
 
     def update_language_display(self) -> None:
         """Update the language display."""
-        try:
-            language_widget = self.query_one("#info_language", Static)
-            lang_text = self.state.language if self.state.language else "auto"
-            language_display_text = Text("Language: ")
-            language_display_text.append(lang_text, style="blue")
-            language_widget.update(language_display_text)
-        except Exception:
-            pass
+        language_widget = self.query_one("#info_language", Static)
+        lang_text = self.state.language if self.state.language else "auto"
+        language_display_text = Text("Language: ")
+        language_display_text.append(lang_text, style="blue")
+        language_widget.update(language_display_text)
 
     def start_recording(self):
-        """Starts the ffmpeg recording process."""
+        """Starts the ffmpeg recording process, capturing stderr for error reporting."""
         ffmpeg_cmd = [
             "ffmpeg",
             "-f",
@@ -185,8 +188,13 @@ class TranscriberApp(App):
             "-y",
             str(self.state.output_file),
         ]
+        # Capture stderr to detect errors if the process fails during recording
         self.recording_process = subprocess.Popen(
-            ffmpeg_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+            ffmpeg_cmd,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            text=True,
+            encoding="utf-8",
         )
 
     def stop_recording(self):
@@ -236,6 +244,7 @@ def copy_to_clipboard(text: str):
 
 def rewrite_transcript(console: Console, transcript: str) -> str:
     """Rewrites the transcript using an LLM for clarity and formatting."""
+    # litellm is slow to import at the start of the script, so we delay it
     from litellm import completion
 
     console.print("✍️  Rewriting transcript...", end="")
@@ -262,10 +271,8 @@ def rewrite_transcript(console: Console, transcript: str) -> str:
 
 def transcribe_audio(console: Console, file_path: Path, state: AppState):
     """Handles the transcription process and prints the result."""
-    from dotenv import load_dotenv
+    # litellm is slow to import at the start of the script, so we delay it
     from litellm import transcription
-
-    load_dotenv()
 
     console.print(f"🎤 Transcribing with [bold]{state.provider}[/bold]...", end="")
     transcribe_start = time.time()
@@ -291,7 +298,6 @@ def transcribe_audio(console: Console, file_path: Path, state: AppState):
 
 def check_dependencies(console: Console):
     """Checks for required command-line tools and API keys."""
-    load_dotenv()
 
     # Check for ffmpeg
     if not shutil.which("ffmpeg"):
@@ -332,6 +338,8 @@ def main(
     console = Console()
     check_dependencies(console)
 
+    temp_dir = Path(tempfile.gettempdir())
+
     # --- Non-Interactive (File-based) Mode ---
     if file:
         # Use dataclass defaults, overridden only by CLI args. No config file.
@@ -342,9 +350,9 @@ def main(
             state.language = language
 
         if file.upper() == "LAST":
-            recordings = sorted(Path("/tmp").glob("recording-*.mp3"))
+            recordings = sorted(temp_dir.glob("recording-*.mp3"))
             if not recordings:
-                console.print("[red]Error: No 'LAST' recording found in /tmp.[/red]")
+                console.print(f"[red]Error: No 'LAST' recording found in {temp_dir}.[/red]")
                 raise typer.Exit(1)
             audio_file_path = recordings[-1]
             console.print(f"Using last recording: [cyan]{audio_file_path}[/cyan]")
@@ -366,13 +374,18 @@ def main(
     if language:
         saved_settings["language"] = language
     state = AppState(**saved_settings)
-    state.output_file = Path(f"/tmp/recording-{time.strftime('%Y-%m-%d-%H-%M-%S')}.mp3")
+    state.output_file = temp_dir / f"recording-{time.strftime('%Y-%m-%d-%H-%M-%S')}.mp3"
 
     app = TranscriberApp(state)
-    final_state = app.run(inline=True)
+    final_state = app.run()
 
     console.clear()
-    if final_state:
+    if isinstance(final_state, RecordingError):
+        console.print(final_state, markup=False)
+        console.print("[bold red]❌ Recording failed unexpectedly.[/bold red]")
+        raise typer.Exit(1)
+
+    elif final_state:
         console.print(f"✅ Recording finished. File: [cyan]{final_state.output_file}[/cyan]")
         save_settings(final_state)
         transcribe_audio(console, final_state.output_file, final_state)
