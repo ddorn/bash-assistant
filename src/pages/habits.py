@@ -631,6 +631,79 @@ def create_daily_completion_chart(daily_df):
     return fig
 
 
+def prepare_daily_heatmap_data(df, habits, start_date, end_date):
+    """Prepare data for the daily habit heatmap."""
+    start_date = pd.to_datetime(start_date)
+    end_date = pd.to_datetime(end_date)
+
+    mask = (df["Date"] >= start_date) & (df["Date"] <= end_date)
+    daily_df = df.loc[mask].copy()
+
+    all_days = pd.date_range(start=start_date, end=end_date, freq="D")
+
+    daily_df = daily_df.set_index("Date")
+    daily_df = daily_df[habits]
+    heatmap_data = daily_df.reindex(all_days)
+
+    heatmap_data = heatmap_data.T
+    heatmap_data = heatmap_data.reindex(habits)
+
+    return heatmap_data
+
+
+def create_daily_completion_heatmap(heatmap_data):
+    """Create a heatmap showing daily habit completion status."""
+    if heatmap_data.empty or heatmap_data.isnull().all().all():
+        fig = go.Figure()
+        fig.update_layout(
+            title="Daily Habit Grid",
+            height=300,
+            annotations=[
+                dict(text="No data available for this period", showarrow=False, font=dict(size=16))
+            ],
+        )
+        return fig
+
+    color_map = {
+        2: 1,
+        0: -1,
+        -1: 0,
+    }
+    z = heatmap_data.apply(lambda x: x.map(color_map))
+
+    text_map = {2: "✅ Done", 0: "❌ Not Done", -1: "➖ Skipped"}
+    hover_text = heatmap_data.apply(lambda x: x.map(text_map)).fillna("Not Tracked")
+
+    fig = go.Figure(
+        data=go.Heatmap(
+            z=z.values,
+            x=heatmap_data.columns.strftime("%Y-%m-%d"),
+            y=heatmap_data.index,
+            colorscale=[[0, "#FF7C7C"], [0.5, "#E0E0E0"], [1, "#90EE90"]],
+            zmin=-1,
+            zmax=1,
+            xgap=1,
+            ygap=1,
+            showscale=False,
+            hoverongaps=False,
+            hovertemplate="<b>%{y}</b><br>%{x}<br>Status: %{customdata}<extra></extra>",
+            customdata=hover_text.values,
+        )
+    )
+
+    fig.update_layout(
+        title="Daily Habit Grid",
+        xaxis_title=None,
+        yaxis_title=None,
+        height=200 + len(heatmap_data.index) * 25,
+        font=dict(size=12),
+        xaxis=dict(tickformat="%a<br>%d %b"),
+        yaxis=dict(autorange="reversed"),
+    )
+
+    return fig
+
+
 def calculate_total_completions(df_filtered, active_habits):
     """Calculate total completions for each habit over the analysis period"""
 
@@ -1073,6 +1146,35 @@ def main():
             st.plotly_chart(daily_chart, use_container_width=True)
         else:
             st.info("Not enough data to show daily trends")
+
+        # Daily completion heatmap
+        st.subheader("🗓️ Daily Habit Grid")
+        st.markdown(
+            "*Visualize habit status day-by-day. Green: Done, Red: Not Done, Gray: Skipped, White: Not Tracked*"
+        )
+
+        today = df["Date"].max().date()
+        two_weeks_ago = today - timedelta(days=13)
+
+        col1, col2, _ = st.columns([1, 1, 2])
+        with col1:
+            daily_start_date = st.date_input(
+                "Start date",
+                value=two_weeks_ago,
+                min_value=min_date,
+                max_value=max_date,
+                key="daily_start",
+            )
+        with col2:
+            daily_end_date = st.date_input(
+                "End date", value=today, min_value=min_date, max_value=max_date, key="daily_end"
+            )
+
+        daily_heatmap_data = prepare_daily_heatmap_data(
+            df, active_habits, daily_start_date, daily_end_date
+        )
+        daily_heatmap_chart = create_daily_completion_heatmap(daily_heatmap_data)
+        st.plotly_chart(daily_heatmap_chart, use_container_width=True)
 
         # Correlation analysis
         st.subheader("🔗 Habit Correlation Analysis")
