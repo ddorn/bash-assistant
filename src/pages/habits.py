@@ -106,7 +106,7 @@ def prepare_weekly_data(df, active_habits, start_date):
 
 
 def create_habit_heatmap(weekly_df, active_habits):
-    """Create a heatmap showing habit completion rates (rows=habits, cols=weeks)"""
+    """Create a heatmap showing habit completion counts (rows=habits, cols=weeks)"""
 
     # Prepare data for heatmap
     heatmap_data = []
@@ -118,8 +118,8 @@ def create_habit_heatmap(weekly_df, active_habits):
         for week in weeks:
             week_data = weekly_df[weekly_df["YearWeek"] == week]
             if not week_data.empty:
-                rate = week_data.iloc[0][f"{habit}_rate"] * 100  # Convert to percentage
-                habit_row.append(rate)
+                completions = week_data.iloc[0][f"{habit}_completions"]
+                habit_row.append(completions)
             else:
                 habit_row.append(0)
         heatmap_data.append(habit_row)
@@ -129,15 +129,17 @@ def create_habit_heatmap(weekly_df, active_habits):
     for week in weeks:
         week_data = weekly_df[weekly_df["YearWeek"] == week]
         if not week_data.empty:
-            week_rates = [week_data.iloc[0][f"{habit}_rate"] for habit in active_habits]
-            avg_rate = sum(week_rates) / len(week_rates) * 100
-            overall_row.append(avg_rate)
+            week_completions = [
+                week_data.iloc[0][f"{habit}_completions"] for habit in active_habits
+            ]
+            avg_completions = sum(week_completions) / len(week_completions)
+            overall_row.append(avg_completions)
         else:
             overall_row.append(0)
     heatmap_data.append(overall_row)
 
     # Create labels
-    y_labels = active_habits + ["📊 OVERALL"]
+    y_labels = active_habits + ["📊 OVERALL AVG"]
 
     # Create heatmap
     fig = go.Figure(
@@ -147,17 +149,20 @@ def create_habit_heatmap(weekly_df, active_habits):
             y=y_labels,
             colorscale="RdYlGn",  # Red-Yellow-Green scale
             zmin=0,
-            zmax=100,
-            text=[[f"{val:.0f}%" for val in row] for row in heatmap_data],
+            zmax=7,
+            text=[
+                [f"{val:.1f}" if isinstance(val, float) else f"{val:.0f}" for val in row]
+                for row in heatmap_data
+            ],
             texttemplate="%{text}",
             textfont={"size": 12},
             hoverongaps=False,
-            colorbar=dict(title="Completion Rate (%)"),
+            colorbar=dict(title="Weekly Completions", tickvals=[0, 1, 2, 3, 4, 5, 6, 7]),
         )
     )
 
     fig.update_layout(
-        title="Habit Completion Heatmap",
+        title="Weekly Habit Completions",
         xaxis_title="Week",
         yaxis_title="Habits",
         height=200 + len(y_labels) * 30,
@@ -169,7 +174,7 @@ def create_habit_heatmap(weekly_df, active_habits):
 
 
 def create_changes_heatmap(weekly_df, active_habits):
-    """Create a heatmap showing week-over-week changes"""
+    """Create a heatmap showing week-over-week changes in completions"""
     if len(weekly_df) < 2:
         return None
 
@@ -186,14 +191,9 @@ def create_changes_heatmap(weekly_df, active_habits):
         overall_changes = []
 
         for habit in active_habits:
-            current_rate = current_week[f"{habit}_rate"] * 100  # Convert to percentage points
-            previous_rate = previous_week[f"{habit}_rate"] * 100
-
-            # Calculate absolute difference in percentage points
-            change = current_rate - previous_rate
-
-            # Cap changes at -100 to +100 points for better visualization
-            change = max(-100, min(100, change))
+            current_completions = current_week[f"{habit}_completions"]
+            previous_completions = previous_week[f"{habit}_completions"]
+            change = current_completions - previous_completions
             week_changes.append(change)
             overall_changes.append(change)
 
@@ -207,7 +207,7 @@ def create_changes_heatmap(weekly_df, active_habits):
     z_data = list(map(list, zip(*changes_data)))
 
     # Create labels
-    y_labels = active_habits + ["📊 OVERALL"]
+    y_labels = active_habits + ["📊 OVERALL AVG"]
 
     # Create heatmap
     fig = go.Figure(
@@ -215,19 +215,22 @@ def create_changes_heatmap(weekly_df, active_habits):
             z=z_data,
             x=change_weeks,
             y=y_labels,
-            colorscale="RdBu_r",  # Red-Blue scale (red=negative, blue=positive)
-            zmin=-100,
-            zmax=100,
-            text=[[f"{val:+.0f}" for val in row] for row in z_data],
+            colorscale="RdBu",  # Red-Blue scale (red=negative, blue=positive)
+            zmin=-7,
+            zmax=7,
+            text=[
+                [f"{val:+.1f}" if isinstance(val, float) else f"{val:+.0f}" for val in row]
+                for row in z_data
+            ],
             texttemplate="%{text}",
             textfont={"size": 12},
             hoverongaps=False,
-            colorbar=dict(title="Change (points)", tickvals=[-100, -50, 0, 50, 100]),
+            colorbar=dict(title="Change in Completions", tickvals=[-7, -3, 0, 3, 7]),
         )
     )
 
     fig.update_layout(
-        title="Week-over-Week Changes Heatmap",
+        title="Week-over-Week Change in Completions",
         xaxis_title="Week Transition",
         yaxis_title="Habits",
         height=200 + len(y_labels) * 30,
@@ -247,8 +250,8 @@ def calculate_week_over_week_changes(weekly_df, active_habits):
         previous_week = weekly_df.iloc[-2]
 
         for habit in active_habits:
-            current_rate = current_week[f"{habit}_rate"]
-            previous_rate = previous_week[f"{habit}_rate"]
+            current_rate = current_week[f"{habit}_rate"] * 100
+            previous_rate = previous_week[f"{habit}_rate"] * 100
 
             if previous_rate > 0:
                 change = ((current_rate - previous_rate) / previous_rate) * 100
@@ -258,8 +261,8 @@ def calculate_week_over_week_changes(weekly_df, active_habits):
             changes.append(
                 {
                     "Habit": habit,
-                    "Current_Week_Rate": current_rate * 100,
-                    "Previous_Week_Rate": previous_rate * 100,
+                    "Current_Week_Rate": current_rate,
+                    "Previous_Week_Rate": previous_rate,
                     "Change_Percent": change,
                     "Current_Completions": current_week[f"{habit}_completions"],
                     "Previous_Completions": previous_week[f"{habit}_completions"],
@@ -1114,15 +1117,17 @@ def main():
 
         # Main content (removed analysis period display)
         # Main visualizations
-        st.subheader("🔥 Habit Completion Heatmap")
-        st.markdown("*Red = Low completion, Yellow = Medium, Green = High completion*")
+        st.subheader("🔥 Weekly Habit Completions")
+        st.markdown("*Number of times each habit was completed per week*")
         heatmap_chart = create_habit_heatmap(weekly_df, active_habits)
         st.plotly_chart(heatmap_chart, use_container_width=True)
 
         # Week-over-week changes heatmap
         if len(weekly_df) >= 2:
             st.subheader("📊 Week-over-Week Changes")
-            st.markdown("*Red = Decline, White = No change, Blue = Improvement*")
+            st.markdown(
+                "*Change in weekly completions. Red = Decline, White = No change, Blue = Improvement*"
+            )
             changes_heatmap = create_changes_heatmap(weekly_df, active_habits)
             if changes_heatmap:
                 st.plotly_chart(changes_heatmap, use_container_width=True)
