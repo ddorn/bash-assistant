@@ -14,7 +14,6 @@ import subprocess
 import tempfile
 import time
 import json
-import base64
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -40,17 +39,14 @@ TRANSCRIPTION_PROVIDERS = {
 REWRITE_PROVIDERS = {
     "groq/llama3-70b": {
         "model": "groq/llama3-70b-8192",
-        "supports_images": False,
         "api_key_env": "GROQ_API_KEY",
     },
     "claude-3.5-haiku": {
         "model": "anthropic/claude-3-5-haiku-20241022",
-        "supports_images": True,
         "api_key_env": "ANTHROPIC_API_KEY",
     },
     "gpt-4o": {
         "model": "openai/gpt-4o",
-        "supports_images": True,
         "api_key_env": "OPENAI_API_KEY",
     },
 }
@@ -109,7 +105,6 @@ class AppState:
     rewrite_provider: str = next(iter(REWRITE_PROVIDERS.keys()))
     language: str | None = "auto"
     rewrite: bool = False
-    with_context: bool = False
     output_file: Path | None = None
     start_time: float = field(default_factory=time.time)
 
@@ -149,9 +144,8 @@ class TranscriberApp(App):
     ENABLE_COMMAND_PALETTE = False
 
     BINDINGS = [
-        ("t", "transcribe(False, False)", "Transcribe"),
-        ("r", "transcribe(True, False)", "Rewrite"),
-        ("c", "transcribe(True, True)", "Rewrite w/ Context"),
+        ("t", "transcribe(False)", "Transcribe"),
+        ("r", "transcribe(True)", "Rewrite"),
         ("l", "toggle_language", ""),
         ("p", "toggle_provider", ""),
         ("s", "toggle_rewrite_provider", ""),
@@ -267,10 +261,9 @@ class TranscriberApp(App):
             self.ffmpeg_log_handle.close()
             self.ffmpeg_log_handle = None
 
-    def action_transcribe(self, rewrite: bool, with_context: bool) -> None:
+    def action_transcribe(self, rewrite: bool) -> None:
         """Stop recording and exit the app to transcribe."""
         self.state.rewrite = rewrite
-        self.state.with_context = with_context
         self.stop_recording()
         self.exit(self.state)
 
@@ -307,54 +300,6 @@ class TranscriberApp(App):
 
 
 # --- Core Logic ---
-def take_screenshot() -> bytes | None:
-    """
-    Takes a screenshot using available system tools or MSS.
-    Returns image bytes on success, None on failure.
-    """
-    temp_path = Path(tempfile.gettempdir()) / f"2text-screenshot-{time.time()}.png"
-
-    # Try Wayland's grim
-    if "WAYLAND_DISPLAY" in os.environ and shutil.which("grim"):
-        try:
-            subprocess.run(["grim", str(temp_path)], check=True, capture_output=True)
-            with open(temp_path, "rb") as f:
-                return f.read()
-        except (subprocess.CalledProcessError, FileNotFoundError):
-            pass  # Fall through to next method
-        finally:
-            if temp_path.exists():
-                temp_path.unlink()
-
-    # Try X11's scrot
-    if "WAYLAND_DISPLAY" not in os.environ and shutil.which("scrot"):
-        try:
-            # -z: silent, -q 0: no quality warning
-            subprocess.run(
-                ["scrot", "-z", "-q", "0", str(temp_path)],
-                check=True,
-                capture_output=True,
-            )
-            with open(temp_path, "rb") as f:
-                return f.read()
-        except (subprocess.CalledProcessError, FileNotFoundError):
-            pass  # Fall through to next method
-        finally:
-            if temp_path.exists():
-                temp_path.unlink()
-
-    # Fallback to MSS
-    import mss
-
-    try:
-
-        with mss.mss() as sct:
-            sct_img = sct.grab(sct.monitors[1])  # Grab the first monitor
-            return mss.tools.to_png(sct_img.rgb, sct_img.size)
-    except Exception:
-        return None  # Other MSS errors
-
-
 def copy_to_clipboard(text: str):
     """Copies the given text to the system clipboard."""
     if os.environ.get("WAYLAND_DISPLAY"):
@@ -364,9 +309,7 @@ def copy_to_clipboard(text: str):
     subprocess.run(cmd, input=text, encoding="utf-8")
 
 
-def rewrite_transcript(
-    console: Console, transcript: str, model_name: str, image_bytes: bytes | None = None
-) -> str:
+def rewrite_transcript(console: Console, transcript: str, model_name: str) -> str:
     """Rewrites the transcript using an LLM for clarity and formatting."""
     # litellm is slow to import at the start of the script, so we delay it
     from litellm import completion
@@ -377,27 +320,13 @@ def rewrite_transcript(
 
 Fix any transcription errors, punctuation, and capitalization. Format it into clean paragraphs.
 
-You may be provided with an image as context. Use it to improve the accuracy of the transcription, for spelling of names, technical terms, or code.
-Do not transcribe the image, just use it for context.
-
 **Only output the corrected text.** Do not add comments, explanations, or any meta-text.
 The output should be a clean, corrected version of the original text, ready to be copied and pasted directly."""
 
-    messages = [{"role": "system", "content": system_prompt}]
-    if image_bytes:
-        base64_image = base64.b64encode(image_bytes).decode("utf-8")
-        user_text = f"Please correct and format this transcript. Use the attached screenshot for context (e.g., for spelling of names, technical terms, etc.).\n\n---\n\n<transcript>\n{transcript}\n</transcript>\n\nCorrected transcript:"
-        user_content = [
-            {
-                "type": "image_url",
-                "image_url": {"url": f"data:image/png;base64,{base64_image}"},
-            },
-            {"type": "text", "text": user_text},
-        ]
-    else:
-        user_content = transcript
-
-    messages.append({"role": "user", "content": user_content})
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": transcript},
+    ]
 
     response = completion(
         model=model_name,
@@ -409,9 +338,7 @@ The output should be a clean, corrected version of the original text, ready to b
     return rewritten_text
 
 
-def transcribe_audio(
-    console: Console, file_path: Path, state: AppState, context_image: bytes | None = None
-):
+def transcribe_audio(console: Console, file_path: Path, state: AppState):
     """Handles the transcription process and prints the result."""
     # litellm is slow to import at the start of the script, so we delay it
     from litellm import transcription
@@ -430,34 +357,11 @@ def transcribe_audio(
     console.print(f" {transcribe_duration:.2f}s ✓")
 
     if state.rewrite:
-        image_bytes_for_rewrite = context_image
         rewrite_provider_key = state.rewrite_provider
         rewrite_provider_config = REWRITE_PROVIDERS[rewrite_provider_key]
         model_for_rewrite = rewrite_provider_config["model"]
 
-        # Handle context request
-        if state.with_context:
-            if not image_bytes_for_rewrite:
-                # This handles interactive mode where we need to take a screenshot
-                image_bytes_for_rewrite = take_screenshot()
-                if not image_bytes_for_rewrite:
-                    console.print("[bold red]Error: Failed to take a screenshot.[/bold red]")
-
-            if image_bytes_for_rewrite and not rewrite_provider_config["supports_images"]:
-                # Smart fallback
-                original_provider = rewrite_provider_key
-                # Find the first available provider that supports images
-                for provider_key, config in REWRITE_PROVIDERS.items():
-                    if config["supports_images"]:
-                        rewrite_provider_key = provider_key
-                        model_for_rewrite = config["model"]
-                        break
-                console.print(
-                    f"[bold yellow]Notice:[/bold yellow] '{original_provider}' does not support images. "
-                    f"Temporarily switching to '{rewrite_provider_key}' for this request."
-                )
-
-        text = rewrite_transcript(console, text, model_for_rewrite, image_bytes_for_rewrite)
+        text = rewrite_transcript(console, text, model_for_rewrite)
 
     console.print(f"\n[bold]Transcript:[/bold]\n{text}")
 
@@ -516,15 +420,6 @@ def main(
     rewrite: bool = typer.Option(
         False, "--rewrite", help="Rewrite the transcript for clarity (non-interactive mode only)."
     ),
-    context_image: Path = typer.Option(
-        None,
-        "--context-image",
-        help="Path to an image file to use as context for rewriting.",
-        exists=True,
-        file_okay=True,
-        dir_okay=False,
-        readable=True,
-    ),
 ):
     """
     An interactive audio recorder and transcriber.
@@ -537,18 +432,8 @@ def main(
 
     # --- Non-Interactive (File-based) Mode ---
     if file:
-        image_bytes = None
-        if context_image:
-            if not rewrite:
-                console.print(
-                    "[bold yellow]Warning:[/bold yellow] --context-image is provided but --rewrite is not. The image will be ignored."
-                )
-            else:
-                with open(context_image, "rb") as f:
-                    image_bytes = f.read()
-
         # Use dataclass defaults, overridden only by CLI args. No config file.
-        state = AppState(rewrite=rewrite, with_context=bool(image_bytes))
+        state = AppState(rewrite=rewrite)
         if provider:
             state.provider = provider
         if language:
@@ -568,7 +453,7 @@ def main(
             console.print(f"[red]Error: File not found: {audio_file_path}[/red]")
             raise typer.Exit(1)
 
-        transcribe_audio(console, audio_file_path, state, context_image=image_bytes)
+        transcribe_audio(console, audio_file_path, state)
         return
 
     # --- Interactive Mode ---
