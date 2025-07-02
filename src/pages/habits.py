@@ -94,17 +94,19 @@ def prepare_weekly_data(df, active_habits, start_date):
                     total_days = len(tracked_values)
                     completion_rate = completions / total_days if total_days > 0 else 0
                 else:
-                    completions = 0
-                    total_days = 0
-                    completion_rate = 0
-
-                week_stats[f"{habit}_completions"] = completions
-                week_stats[f"{habit}_total_days"] = total_days
-                week_stats[f"{habit}_rate"] = completion_rate
+                    # Not tracked this week, assign NaN
+                    completions = np.nan
+                    total_days = np.nan
+                    completion_rate = np.nan
             else:
-                week_stats[f"{habit}_completions"] = 0
-                week_stats[f"{habit}_total_days"] = 0
-                week_stats[f"{habit}_rate"] = 0
+                # Habit not in data for this week, assign NaN
+                completions = np.nan
+                total_days = np.nan
+                completion_rate = np.nan
+
+            week_stats[f"{habit}_completions"] = completions
+            week_stats[f"{habit}_total_days"] = total_days
+            week_stats[f"{habit}_rate"] = completion_rate
 
         weekly_stats.append(week_stats)
 
@@ -127,7 +129,7 @@ def create_habit_heatmap(weekly_df, active_habits):
                 completions = week_data.iloc[0][f"{habit}_completions"]
                 habit_row.append(completions)
             else:
-                habit_row.append(0)
+                habit_row.append(np.nan)
         heatmap_data.append(habit_row)
 
     # Add overall average row
@@ -138,10 +140,13 @@ def create_habit_heatmap(weekly_df, active_habits):
             week_completions = [
                 week_data.iloc[0][f"{habit}_completions"] for habit in active_habits
             ]
-            avg_completions = sum(week_completions) / len(week_completions)
+            # Use nanmean to ignore stopped habits (NaNs)
+            with np.errstate(invalid="ignore"):  # Suppress warning for all-NaN slice
+                avg_completions = np.nanmean(week_completions)
+
             overall_row.append(avg_completions)
         else:
-            overall_row.append(0)
+            overall_row.append(np.nan)
     heatmap_data.append(overall_row)
 
     # Create labels
@@ -157,7 +162,14 @@ def create_habit_heatmap(weekly_df, active_habits):
             zmin=0,
             zmax=7,
             text=[
-                [f"{val:.1f}" if isinstance(val, float) else f"{val:.0f}" for val in row]
+                [
+                    (
+                        ""
+                        if np.isnan(val)
+                        else (f"{val:.1f}" if isinstance(val, float) else f"{val:.0f}")
+                    )
+                    for val in row
+                ]
                 for row in heatmap_data
             ],
             texttemplate="%{text}",
@@ -203,8 +215,10 @@ def create_changes_heatmap(weekly_df, active_habits):
             week_changes.append(change)
             overall_changes.append(change)
 
-        # Add overall average change
-        avg_change = sum(overall_changes) / len(overall_changes) if overall_changes else 0
+        # Add overall average change, ignoring NaNs
+        with np.errstate(invalid="ignore"):
+            avg_change = np.nanmean(overall_changes)
+
         week_changes.append(avg_change)
 
         changes_data.append(week_changes)
@@ -225,7 +239,14 @@ def create_changes_heatmap(weekly_df, active_habits):
             zmin=-7,
             zmax=7,
             text=[
-                [f"{val:+.1f}" if isinstance(val, float) else f"{val:+.0f}" for val in row]
+                [
+                    (
+                        ""
+                        if np.isnan(val)
+                        else (f"{val:+.1f}" if isinstance(val, float) else f"{val:+.0f}")
+                    )
+                    for val in row
+                ]
                 for row in z_data
             ],
             texttemplate="%{text}",
@@ -259,11 +280,10 @@ def calculate_week_over_week_changes(weekly_df, active_habits):
             current_rate = current_week[f"{habit}_rate"] * 100
             previous_rate = previous_week[f"{habit}_rate"] * 100
 
-            if previous_rate > 0:
-                change = ((current_rate - previous_rate) / previous_rate) * 100
-            else:
-                change = 100 if current_rate > 0 else 0
+            if pd.isna(current_rate) or pd.isna(previous_rate):
+                continue
 
+            change = current_rate - previous_rate
             changes.append(
                 {
                     "Habit": habit,
@@ -313,7 +333,11 @@ def calculate_performance_summary(weekly_df, active_habits):
 
     # Get latest week performance
     latest_week = weekly_df.iloc[-1]
-    latest_rates = [(habit, latest_week[f"{habit}_rate"] * 100) for habit in active_habits]
+    latest_rates = [
+        (habit, latest_week[f"{habit}_rate"] * 100)
+        for habit in active_habits
+        if pd.notna(latest_week[f"{habit}_rate"])
+    ]
     latest_rates.sort(key=lambda x: x[1], reverse=True)
 
     # Calculate changes if we have multiple weeks
@@ -325,6 +349,10 @@ def calculate_performance_summary(weekly_df, active_habits):
         for habit in active_habits:
             current_rate = current_week[f"{habit}_rate"] * 100
             previous_rate = previous_week[f"{habit}_rate"] * 100
+
+            if pd.isna(current_rate) or pd.isna(previous_rate):
+                continue
+
             change = current_rate - previous_rate
             changes.append((habit, change))
 
@@ -379,10 +407,19 @@ def calculate_weekday_patterns(df_filtered, active_habits):
 
         for habit in active_habits:
             if habit in day_data.columns:
-                completions, total_days, completion_rate = calculate_habit_completion_stats(
-                    day_data[habit]
-                )
+                habit_values = day_data[habit].dropna()
+                tracked_values = habit_values[habit_values != -1]
+
+                if len(tracked_values) > 0:
+                    completions = len(tracked_values[tracked_values == 2])
+                    total_days = len(tracked_values)
+                    completion_rate = completions / total_days if total_days > 0 else 0
+                else:
+                    completion_rate = np.nan
+
                 day_rates.append(completion_rate)
+            else:
+                day_rates.append(np.nan)
 
         weekday_stats[weekday] = day_rates
 
@@ -454,9 +491,9 @@ def create_weekday_heatmap(weekday_stats, weekdays, active_habits):
                 if habit_idx < len(weekday_stats[weekday]):
                     rate = weekday_stats[weekday][habit_idx] * 100
                 else:
-                    rate = 0
+                    rate = np.nan
             else:
-                rate = 0
+                rate = np.nan
             habit_row.append(rate)
         heatmap_data.append(habit_row)
 
@@ -464,9 +501,10 @@ def create_weekday_heatmap(weekday_stats, weekdays, active_habits):
     overall_row = []
     for weekday in weekdays:
         if weekday in weekday_stats and weekday_stats[weekday]:
-            avg_rate = sum(weekday_stats[weekday]) / len(weekday_stats[weekday]) * 100
+            with np.errstate(invalid="ignore"):
+                avg_rate = np.nanmean(weekday_stats[weekday]) * 100
         else:
-            avg_rate = 0
+            avg_rate = np.nan
         overall_row.append(avg_rate)
     heatmap_data.append(overall_row)
 
@@ -482,7 +520,7 @@ def create_weekday_heatmap(weekday_stats, weekdays, active_habits):
             colorscale="RdYlGn",
             zmin=0,
             zmax=100,
-            text=[[f"{val:.0f}%" for val in row] for row in heatmap_data],
+            text=[["" if np.isnan(val) else f"{val:.0f}%" for val in row] for row in heatmap_data],
             texttemplate="%{text}",
             textfont={"size": 12},
             hoverongaps=False,
