@@ -27,22 +27,28 @@ def load_data():
     return df, habits_meta
 
 
-def identify_active_habits(df, days_back=30):
-    """Identify habits that have been tracked in the last N days"""
-    most_recent = df["Date"].max()
-    cutoff_date = most_recent - timedelta(days=days_back)
+def get_habits_in_period(df, start_date):
+    """Identify habits tracked within the analysis period starting from start_date."""
+    # Analysis starts on Monday of the week of start_date
+    start_datetime = pd.to_datetime(start_date)
+    days_since_monday = start_datetime.weekday()
+    analysis_start_date = start_datetime - timedelta(days=days_since_monday)
 
-    recent_df = df[df["Date"] >= cutoff_date].copy()
+    # Filter the dataframe for the analysis period
+    period_df = df[df["Date"] >= analysis_start_date]
+
     habit_cols = [col for col in df.columns if col != "Date"]
 
-    active_habits = []
+    tracked_habits = []
     for habit in habit_cols:
-        recent_values = recent_df[habit].dropna()
-        non_negative_ones = recent_values[recent_values != -1]
-        if len(non_negative_ones) > 0:
-            active_habits.append(habit)
+        if habit in period_df.columns:
+            # A habit is considered tracked if it has any data points (not NaN and not -1)
+            tracked_values = period_df[habit].dropna()
+            tracked_values = tracked_values[tracked_values != -1]
+            if not tracked_values.empty:
+                tracked_habits.append(habit)
 
-    return active_habits
+    return tracked_habits
 
 
 def prepare_weekly_data(df, active_habits, start_date):
@@ -1020,34 +1026,34 @@ def main():
                 f"📅 Analysis starts from: {monday_of_week.strftime('%Y-%m-%d')} (Monday)"
             )
 
-        # Identify active habits
-        active_habits = identify_active_habits(df)
+        # Identify habits for the selected period
+        habits_in_period = get_habits_in_period(df, start_date)
 
         # Sort habits by their original position/priority
-        active_habits = sort_habits_by_position(active_habits, habits_meta)
+        habits_in_period = sort_habits_by_position(habits_in_period, habits_meta)
 
-        st.sidebar.header("📋 Active Habits")
-        st.sidebar.write(f"Found **{len(active_habits)}** active habits")
+        st.sidebar.header("📋 Habits in Period")
+        st.sidebar.write(f"Found **{len(habits_in_period)}** habits in the selected period")
 
         # Show non-daily habits warning
         non_daily = habits_meta[habits_meta["Interval"] != 1]
         if len(non_daily) > 0:
             st.sidebar.warning("⚠️ Non-daily habits detected:")
             for _, row in non_daily.iterrows():
-                if row["Name"] in active_habits:
+                if row["Name"] in habits_in_period:
                     st.sidebar.write(f"• {row['Name']} (every {row['Interval']} days)")
 
         # Prepare weekly data with user-selected period
-        weekly_df, target_weeks = prepare_weekly_data(df, active_habits, start_date)
+        weekly_df, target_weeks = prepare_weekly_data(df, habits_in_period, start_date)
 
         # Most Recent Week Metric at the top
         if len(weekly_df) >= 1:
             most_recent_complete_week = weekly_df.iloc[-1]
             total_completions_recent = sum(
-                [most_recent_complete_week[f"{h}_completions"] for h in active_habits]
+                [most_recent_complete_week[f"{h}_completions"] for h in habits_in_period]
             )
             total_possible_recent = sum(
-                [most_recent_complete_week[f"{h}_total_days"] for h in active_habits]
+                [most_recent_complete_week[f"{h}_total_days"] for h in habits_in_period]
             )
             recent_rate = (
                 (total_completions_recent / total_possible_recent * 100)
@@ -1058,8 +1064,10 @@ def main():
             # Calculate change from previous week
             if len(weekly_df) >= 2:
                 prev_week = weekly_df.iloc[-2]
-                total_completions_prev = sum([prev_week[f"{h}_completions"] for h in active_habits])
-                total_possible_prev = sum([prev_week[f"{h}_total_days"] for h in active_habits])
+                total_completions_prev = sum(
+                    [prev_week[f"{h}_completions"] for h in habits_in_period]
+                )
+                total_possible_prev = sum([prev_week[f"{h}_total_days"] for h in habits_in_period])
                 prev_rate = (
                     (total_completions_prev / total_possible_prev * 100)
                     if total_possible_prev > 0
@@ -1080,7 +1088,7 @@ def main():
 
         # Performance Summary
         st.subheader("🎯 Performance Overview")
-        summary = calculate_performance_summary(weekly_df, active_habits)
+        summary = calculate_performance_summary(weekly_df, habits_in_period)
 
         if summary:
             col1, col2 = st.columns(2)
@@ -1119,7 +1127,7 @@ def main():
         # Main visualizations
         st.subheader("🔥 Weekly Habit Completions")
         st.markdown("*Number of times each habit was completed per week*")
-        heatmap_chart = create_habit_heatmap(weekly_df, active_habits)
+        heatmap_chart = create_habit_heatmap(weekly_df, habits_in_period)
         st.plotly_chart(heatmap_chart, use_container_width=True)
 
         # Week-over-week changes heatmap
@@ -1128,7 +1136,7 @@ def main():
             st.markdown(
                 "*Change in weekly completions. Red = Decline, White = No change, Blue = Improvement*"
             )
-            changes_heatmap = create_changes_heatmap(weekly_df, active_habits)
+            changes_heatmap = create_changes_heatmap(weekly_df, habits_in_period)
             if changes_heatmap:
                 st.plotly_chart(changes_heatmap, use_container_width=True)
 
@@ -1138,14 +1146,14 @@ def main():
         # Weekday patterns
         st.subheader("📅 Weekday Performance Patterns")
         st.markdown("*Discover which days of the week work best for your habits*")
-        weekday_stats, weekdays = calculate_weekday_patterns(df_filtered, active_habits)
-        weekday_heatmap = create_weekday_heatmap(weekday_stats, weekdays, active_habits)
+        weekday_stats, weekdays = calculate_weekday_patterns(df_filtered, habits_in_period)
+        weekday_heatmap = create_weekday_heatmap(weekday_stats, weekdays, habits_in_period)
         st.plotly_chart(weekday_heatmap, use_container_width=True)
 
         # Daily completion over time
         st.subheader("📈 Daily Completion Trends")
         st.markdown("*Track your overall habit completion percentage day by day*")
-        daily_df = calculate_daily_completion_rates(df_filtered, active_habits)
+        daily_df = calculate_daily_completion_rates(df_filtered, habits_in_period)
         if len(daily_df) > 0:
             daily_chart = create_daily_completion_chart(daily_df)
             st.plotly_chart(daily_chart, use_container_width=True)
@@ -1176,7 +1184,7 @@ def main():
             )
 
         daily_heatmap_data = prepare_daily_heatmap_data(
-            df, active_habits, daily_start_date, daily_end_date
+            df, habits_in_period, daily_start_date, daily_end_date
         )
         daily_heatmap_chart = create_daily_completion_heatmap(daily_heatmap_data)
         st.plotly_chart(daily_heatmap_chart, use_container_width=True)
@@ -1185,10 +1193,10 @@ def main():
         st.subheader("🔗 Habit Correlation Analysis")
         st.markdown("*Discover which habits tend to succeed or fail together*")
 
-        corr_matrix, top_correlations = calculate_habit_correlations(df_filtered, active_habits)
+        corr_matrix, top_correlations = calculate_habit_correlations(df_filtered, habits_in_period)
 
         # Show correlation heatmap
-        corr_heatmap = create_correlation_heatmap(corr_matrix, active_habits)
+        corr_heatmap = create_correlation_heatmap(corr_matrix, habits_in_period)
         st.plotly_chart(corr_heatmap, use_container_width=True)
 
         # Show top insights with improved layout
@@ -1251,7 +1259,7 @@ def main():
 
         # Choose data based on checkbox
         data_for_completions = df if use_all_data else df_filtered
-        completions_df = calculate_total_completions(data_for_completions, active_habits)
+        completions_df = calculate_total_completions(data_for_completions, habits_in_period)
         completions_histogram = create_completions_histogram(completions_df)
         st.plotly_chart(completions_histogram, use_container_width=True)
 
