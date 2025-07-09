@@ -14,6 +14,7 @@ import subprocess
 import tempfile
 import time
 import json
+import signal
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -106,7 +107,9 @@ class AppState:
     language: str | None = None
     rewrite: bool = False
     output_file: Path | None = None
-    start_time: float = field(default_factory=time.time)
+    segment_start_time: float = field(default_factory=time.time)
+    is_paused: bool = False
+    total_recorded_duration: float = 0.0
 
     @property
     def model_name(self) -> str:
@@ -115,7 +118,11 @@ class AppState:
 
     def get_duration(self) -> str:
         """Returns the formatted recording duration."""
-        return f"{time.time() - self.start_time:.1f}s"
+        current_segment_duration = 0.0
+        if not self.is_paused:
+            current_segment_duration = time.time() - self.segment_start_time
+        total_duration = self.total_recorded_duration + current_segment_duration
+        return f"{total_duration:.1f}s"
 
     def get_file_size_str(self) -> str:
         """Returns the formatted file size as a string."""
@@ -144,6 +151,7 @@ class TranscriberApp(App):
     ENABLE_COMMAND_PALETTE = False
 
     BINDINGS = [
+        ("space", "toggle_pause", "Pause"),
         ("t", "transcribe(False)", "Transcribe"),
         ("r", "transcribe(True)", "Rewrite"),
         ("l", "toggle_language", ""),
@@ -194,8 +202,11 @@ class TranscriberApp(App):
             self.exit(RecordingError(error_message))
 
         stats_widget = self.query_one("#info_stats", Static)
-        stats_text = Text("Stats: ")
-        stats_text.append(f"{self.state.get_duration()} | {self.state.get_file_size_str()}")
+        icon = "⏸️ " if self.state.is_paused else "🔴"
+        label = "Paused" if self.state.is_paused else "Rec"
+        stats_text = Text(
+            f"{icon} {label}: {self.state.get_duration()} | {self.state.get_file_size_str()}"
+        )
         stats_widget.update(stats_text)
 
     def update_provider_display(self) -> None:
@@ -244,6 +255,11 @@ class TranscriberApp(App):
     def stop_recording(self):
         """Stops the ffmpeg recording process."""
         if self.recording_process and self.recording_process.poll() is None:
+            if self.state.is_paused:
+                # Resume before terminating to ensure it exits cleanly
+                os.kill(self.recording_process.pid, signal.SIGCONT)
+                self.state.is_paused = False
+
             self.recording_process.terminate()
 
             # Optimisation: we delay the import of litellm as it delays a lot the start of the script
@@ -263,9 +279,32 @@ class TranscriberApp(App):
 
     def action_transcribe(self, rewrite: bool) -> None:
         """Stop recording and exit the app to transcribe."""
+        # If we are actively recording, add the final segment's duration
+        if not self.state.is_paused:
+            segment_duration = time.time() - self.state.segment_start_time
+            self.state.total_recorded_duration += segment_duration
+
         self.state.rewrite = rewrite
         self.stop_recording()
         self.exit(self.state)
+
+    def action_toggle_pause(self) -> None:
+        """Toggles the recording between paused and active states."""
+        if not self.recording_process or self.recording_process.poll() is not None:
+            return  # Can't pause/resume if recording isn't active
+
+        self.state.is_paused = not self.state.is_paused
+
+        if self.state.is_paused:
+            # Pause the recording
+            os.kill(self.recording_process.pid, signal.SIGSTOP)
+            segment_duration = time.time() - self.state.segment_start_time
+            self.state.total_recorded_duration += segment_duration
+        else:
+            # Resume the recording
+            self.state.segment_start_time = time.time()
+            os.kill(self.recording_process.pid, signal.SIGCONT)
+        self.update_stats()
 
     def action_toggle_provider(self) -> None:
         """Toggle the transcription provider."""
