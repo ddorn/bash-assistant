@@ -103,7 +103,7 @@ class AppState:
 
     provider: str = next(iter(TRANSCRIPTION_PROVIDERS.keys()))
     rewrite_provider: str = next(iter(REWRITE_PROVIDERS.keys()))
-    language: str | None = "auto"
+    language: str | None = None
     rewrite: bool = False
     output_file: Path | None = None
     start_time: float = field(default_factory=time.time)
@@ -346,11 +346,14 @@ def transcribe_audio(console: Console, file_path: Path, state: AppState):
     console.print(f"🎤 Transcribing with [bold]{state.provider}[/bold]...", end="")
     transcribe_start = time.time()
 
+    kwargs = {"model": state.model_name}
+    if state.language:
+        kwargs["language"] = state.language
+
     with open(file_path, "rb") as audio_file:
         response = transcription(
-            model=state.model_name,
             file=audio_file,
-            language=state.language,
+            **kwargs,
         )
     text = response["text"].strip()
     transcribe_duration = time.time() - transcribe_start
