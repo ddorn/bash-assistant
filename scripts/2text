@@ -175,7 +175,10 @@ class TranscriberApp(App):
         yield Footer()
 
     def on_mount(self) -> None:
-        """Start the recording and the UI timer."""
+        """Start the recording, UI timer, and background import of litellm."""
+        # Start a background worker to import the slow module.
+        self.run_worker(self.import_litellm, exclusive=True, thread=True)
+
         # Set the static file path line
         file_info_widget = self.query_one("#info_file", Static)
         file_info_text = Text("Recording to ")
@@ -188,6 +191,10 @@ class TranscriberApp(App):
         self.update_language_display()
         self.update_timer = self.set_interval(1 / 10, self.update_stats)
         self.start_recording()
+
+    def import_litellm(self) -> None:
+        """A worker method to import litellm in the background."""
+        import litellm
 
     def update_stats(self) -> None:
         """Update the stats display and check for recording process failure."""
@@ -262,13 +269,7 @@ class TranscriberApp(App):
 
             self.recording_process.terminate()
 
-            # Optimisation: we delay the import of litellm as it delays a lot the start of the script
-            # until we can record. But here, ffmpeg needs a bit of time to stop (writing audio buffer to disk)
-            # so it's a good time to do something else that takes ~1s.
-            import litellm
-
-            # It's a long timeout, but we want to be sure have everything written to disk
-            # in practice, the timeout should not be reached.
+            # We just wait for ffmpeg to finish writing the file.
             self.recording_process.wait(timeout=15)
             if self.recording_process.poll() is None:  # Force kill if terminate fails
                 self.recording_process.kill()
@@ -350,7 +351,7 @@ def copy_to_clipboard(text: str):
 
 def rewrite_transcript(console: Console, transcript: str, model_name: str) -> str:
     """Rewrites the transcript using an LLM for clarity and formatting."""
-    # litellm is slow to import at the start of the script, so we delay it
+    # litellm is slow to import at the start of the script, so we delayed it
     from litellm import completion
 
     console.print("✍️  Rewriting transcript...", end="")
@@ -379,7 +380,7 @@ The output should be a clean, corrected version of the original text, ready to b
 
 def transcribe_audio(console: Console, file_path: Path, state: AppState):
     """Handles the transcription process and prints the result."""
-    # litellm is slow to import at the start of the script, so we delay it
+    # litellm is slow to import at the start of the script, so we delayed it
     from litellm import transcription
 
     console.print(f"🎤 Transcribing with [bold]{state.provider}[/bold]...", end="")
