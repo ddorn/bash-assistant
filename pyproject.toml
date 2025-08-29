@@ -4,7 +4,7 @@ version = "0.1.0"
 description = ""
 license = "WTFPL"
 readme = "README.md"
-requires-python = "~=3.12"
+requires-python = "~=3.12.0"
 dependencies = [
     "prompt-toolkit>=3.0.41",
     "openai>=1.41.1",
@@ -33,6 +33,7 @@ dependencies = [
     "python-dotenv>=1.0.1",
     "platformdirs>=4.3.6",
     "mss>=9.0.1",
+    "groq>=0.31.0",
 ]
 
 [dependency-groups]

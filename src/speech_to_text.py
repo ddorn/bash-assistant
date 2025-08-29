@@ -22,6 +22,7 @@ import typer
 from rich.console import Console
 from rich.text import Text
 import platformdirs
+import groq
 
 from textual.app import App, ComposeResult
 from textual.widgets import Footer, Static
@@ -390,12 +391,21 @@ def transcribe_audio(console: Console, file_path: Path, state: AppState):
     if state.language:
         kwargs["language"] = state.language
 
-    with open(file_path, "rb") as audio_file:
-        response = transcription(
-            file=audio_file,
-            **kwargs,
-        )
-    text = response["text"].strip()
+    if state.model_name.startswith("groq/"):
+        client = groq.Groq()
+        kwargs["model"] = state.model_name[5:]  # Remove groq/ prefix
+        with open(file_path, "rb") as audio_file:
+            text = client.audio.transcriptions.create(
+                file=audio_file,
+                **kwargs,
+            ).text.strip()
+    else:
+        with open(file_path, "rb") as audio_file:
+            text = transcription(
+                file=audio_file,
+                **kwargs,
+            )["text"].strip()
+
     transcribe_duration = time.time() - transcribe_start
     console.print(f" {transcribe_duration:.2f}s ✓")
 
