@@ -35,6 +35,7 @@ load_dotenv()
 # --- Configuration ---
 TRANSCRIPTION_PROVIDERS = {
     "groq/whisper-large-v3": {"model": "groq/whisper-large-v3", "api_key_env": "GROQ_API_KEY"},
+    "elevenlabs/scribe_v1": {"model": "elevenlabs/scribe_v1", "api_key_env": "ELEVENLABS_API_KEY"},
     "openai/whisper-1": {"model": "openai/whisper-1", "api_key_env": "OPENAI_API_KEY"},
 }
 
@@ -115,7 +116,10 @@ class AppState:
     @property
     def model_name(self) -> str:
         """Returns the transcription model name based on the provider."""
-        return TRANSCRIPTION_PROVIDERS[self.provider]["model"]
+        try:
+            return TRANSCRIPTION_PROVIDERS[self.provider]["model"]
+        except KeyError:
+            return self.provider  # Fallback to provider string
 
     def get_duration(self) -> str:
         """Returns the formatted recording duration."""
