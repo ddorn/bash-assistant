@@ -1,0 +1,14 @@
+[Unit]
+Description=Focus Helper - Screen lock after usage threshold
+After=graphical-session.target
+Wants=graphical-session.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/diego/prog/archive/2023/scripts
+ExecStart=/usr/bin/uv run src/focus_helper.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=default.target
