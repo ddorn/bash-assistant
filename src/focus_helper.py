@@ -9,12 +9,18 @@ CHECK_INTERVAL_SECONDS = 60  # How often the script checks for activity
 # Notify at 5, 3, and 1 minute(s) before the screen locks.
 NOTIFICATION_MINUTES_BEFORE_LOCK = {1, 3, 5}
 # IMPORTANT: This value is passed to the swayidle daemon.
-IDLE_TIMEOUT_SECONDS = 120  # Consider user idle after 2 minutes of inactivity.
+IDLE_TIMEOUT_SECONDS = 60  # Consider user idle no activity for X seconds
 IDLE_MARKER_PATH = Path("/tmp/focus_idle_marker")
 # The script will look for your image here.
 # You can change this to an absolute path if you prefer.
 LOCK_IMAGE_PATH = Path(__file__).parent.parent / "data/deepbreaths.jpg"
 DAEMON_SCRIPT_PATH = Path(__file__).parent.parent / "scripts/run_focus_daemon.sh"
+
+# This is dangerous! If set to a high value
+# the computer will not be usable for the given amount of time.
+# Keeps the screen locked for X seconds, re-locking it if unlocked.
+# If set to 0, locks only once.
+LOCK_DURATION_SECONDS = 30  # ! Read the comment above.
 
 # Time-based override configuration
 # Set to None to disable time-based override
@@ -94,18 +100,7 @@ def main():
 
         if active_minutes >= USAGE_MINUTES_THRESHOLD:
             print(f"Usage threshold of {USAGE_MINUTES_THRESHOLD} minutes reached. Locking screen.")
-
-            command = ["swaylock"]
-            if LOCK_IMAGE_PATH.exists():
-                command.extend(["-i", str(LOCK_IMAGE_PATH)])
-            else:
-                print(f"Warning: Lock image not found at {LOCK_IMAGE_PATH}. Locking without image.")
-
-            try:
-                subprocess.run(command, check=True)
-            except (subprocess.CalledProcessError, FileNotFoundError):
-                print("Error: Could not lock screen. Is 'swaylock' installed?")
-
+            keep_screen_locked_for(LOCK_DURATION_SECONDS)
             # Reset the counter after a break
             active_minutes = 0
             # Also, ensure the idle marker is gone so we don't count the break
@@ -115,7 +110,30 @@ def main():
         time.sleep(CHECK_INTERVAL_SECONDS)
 
 
+def lock_screen():
+    command = ["swaylock"]
+    if LOCK_IMAGE_PATH.exists():
+        command.extend(["-i", str(LOCK_IMAGE_PATH)])
+    else:
+        print(f"Warning: Lock image not found at {LOCK_IMAGE_PATH}. Locking without image.")
+
+    try:
+        subprocess.run(command, check=True)
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        print("Error: Could not lock screen. Is 'swaylock' installed?")
+
+
+def keep_screen_locked_for(seconds: int):
+    """Keep the screen locked for a given number of seconds. Re-locking if unlocked."""
+    lock_screen()
+    start = time.time()
+    while time.time() - start < seconds:
+        lock_screen()
+        time.sleep(1)
+
+
 if __name__ == "__main__":
+
     try:
         main()
     except Exception as e:
