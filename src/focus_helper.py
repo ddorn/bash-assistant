@@ -4,7 +4,7 @@ from pathlib import Path
 from datetime import datetime, time as dt_time
 
 # --- Configuration ---
-USAGE_MINUTES_THRESHOLD = 15  # Lock screen after X minutes of activity
+USAGE_MINUTES_THRESHOLD = 20  # Lock screen after X minutes of activity
 CHECK_INTERVAL_SECONDS = 60  # How often the script checks for activity
 # Notify at 5, 3, and 1 minute(s) before the screen locks.
 NOTIFICATION_MINUTES_BEFORE_LOCK = {1, 3, 5}
@@ -118,9 +118,11 @@ def lock_screen():
         print(f"Warning: Lock image not found at {LOCK_IMAGE_PATH}. Locking without image.")
 
     try:
-        subprocess.run(command, check=True)
-    except (subprocess.CalledProcessError, FileNotFoundError):
-        print("Error: Could not lock screen. Is 'swaylock' installed?")
+        subprocess.run(command, check=True, capture_output=True, text=True)
+    except FileNotFoundError:
+        raise RuntimeError("swaylock not found. Is it installed?")
+    except subprocess.CalledProcessError as e:
+        raise RuntimeError(f"swaylock failed: {e.stderr or e.stdout or e}")
 
 
 def keep_screen_locked_for(seconds: int):

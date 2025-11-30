@@ -6,6 +6,7 @@ Wants=graphical-session.target
 [Service]
 Type=simple
 WorkingDirectory=/home/diego/prog/archive/2023/scripts
+Environment=PYTHONUNBUFFERED=1
 ExecStart=/usr/bin/uv run src/focus_helper.py
 Restart=always
 RestartSec=10
