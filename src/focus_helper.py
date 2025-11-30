@@ -1,3 +1,30 @@
+"""
+Focus Helper - Enforced Screen Breaks for Sway/Wayland
+
+Locks your screen after sustained activity, forcing you to take regular breaks.
+Unlike passive reminders, this actually locks the screen and keeps it locked
+for LOCK_DURATION_SECONDS (re-locking if you unlock early).
+
+Requirements:
+    - swaylock (screen locker)
+    - swayidle (idle detection)
+    - notify-send (notifications, usually from libnotify)
+
+Installation:
+    1. Copy services/focus-helper.service to ~/.config/systemd/user/
+       (or symlink it: ln -s /path/to/focus-helper.service ~/.config/systemd/user/)
+    2. Run: systemctl --user daemon-reload
+    3. Add to your sway config: exec systemctl --user start focus-helper.service
+       (Don't use `systemctl enable` - it needs to start AFTER Wayland is ready)
+    4. Reload sway or reboot
+
+Configuration:
+    Edit the constants below (USAGE_MINUTES_THRESHOLD, LOCK_DURATION_SECONDS, etc.)
+
+Logs:
+    journalctl --user -u focus-helper -f
+"""
+
 import subprocess
 import time
 from pathlib import Path
