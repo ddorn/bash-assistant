@@ -114,6 +114,8 @@ def go_to_sleep(
     notify: str = "20:00",
     shutdown: str = "22:30",
     end: str = "07:00",
+    hard_shutdown: str = "00:00",
+    hard_shutdown_end: str = "04:00",
     snooze_file: Path = Path("/tmp/no_sleep_today"),
     good_night_music: Path = utils.DATA / "goodnight.mp3",
 ):
@@ -128,6 +130,8 @@ def go_to_sleep(
     notify = time_to_seconds(notify)
     shutdown = time_to_seconds(shutdown)
     end = time_to_seconds(end)
+    hard_shutdown = time_to_seconds(hard_shutdown)
+    hard_shutdown_end = time_to_seconds(hard_shutdown_end)
     now = datetime.now().hour * 3600 + datetime.now().minute * 60
 
     if not is_in_order(notify, shutdown, end):
@@ -147,6 +151,10 @@ def go_to_sleep(
                 urgency="critical",
             )
         else:
+            # Use immediate shutdown if we're in the hard shutdown window
+            use_hard_shutdown = is_in_order(hard_shutdown, now, hard_shutdown_end)
+            shutdown_cmd = "shutdown now" if use_hard_shutdown else "shutdown"
+
             commands = f"""
             playerctl pause || true
 
@@ -161,7 +169,7 @@ def go_to_sleep(
 
             # Hibernate
             # systemctl hibernate
-            shutdown
+            {shutdown_cmd}
             """
             subprocess.run(dedent(commands), shell=True)
     else:
