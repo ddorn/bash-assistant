@@ -116,14 +116,18 @@ def main():
         # If the file doesn't exist, it means the user was active.
         if not IDLE_MARKER_PATH.exists():
             active_minutes += CHECK_INTERVAL_SECONDS / 60
-            print(f"User is active. Total active time: {active_minutes:.2f} minutes.")
+            print(
+                f"User is active. Total active time: {active_minutes:.2f}/{USAGE_MINUTES_THRESHOLD} minutes."
+            )
 
             minutes_remaining = USAGE_MINUTES_THRESHOLD - active_minutes
             if minutes_remaining in NOTIFICATION_MINUTES_BEFORE_LOCK:
                 message = f"Short break in {minutes_remaining} minute(s)."
                 send_notification(message)
         else:
-            print(f"User is idle. Total active time remains {active_minutes:.2f} minutes.")
+            print(
+                f"User is idle. Total active time remains {active_minutes:.2f}/{USAGE_MINUTES_THRESHOLD} minutes."
+            )
 
         if active_minutes >= USAGE_MINUTES_THRESHOLD:
             print(f"Usage threshold of {USAGE_MINUTES_THRESHOLD} minutes reached. Locking screen.")
@@ -153,11 +157,25 @@ def lock_screen():
 
 
 def keep_screen_locked_for(seconds: int):
-    """Keep the screen locked for a given number of seconds. Re-locking if unlocked."""
-    lock_screen()
-    start = time.time()
-    while time.time() - start < seconds:
+    """Keep the screen locked for a given number of seconds. Re-locking and adding penalty if unlocked early."""
+    end_time = time.time() + seconds
+    while time.time() < end_time:
+        lock_start = time.time()
         lock_screen()
+        lock_end = time.time()
+        lock_duration = lock_end - lock_start
+        remaining_time = end_time - lock_end
+
+        print(f"Screen was locked for {lock_duration:.2f} seconds.")
+
+        # If there's still time remaining, user unlocked early - add penalty
+        if remaining_time > 0:
+            penalty = 30
+            end_time += penalty
+            print(
+                f"Screen unlocked early! Adding {penalty} second penalty. New remaining time: {end_time - time.time():.2f} seconds."
+            )
+
         time.sleep(1)
 
 
