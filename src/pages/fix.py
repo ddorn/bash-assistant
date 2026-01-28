@@ -50,7 +50,7 @@ def cache():
 
 
 if lets_gooo:
-    corrected = st.write_stream(ai_stream(system, [dict(role="user", content=text)]))
+    corrected = st.write_stream(ai_stream(system, [dict(role="user", content=text)], model=model))
     cache()[text, system] = corrected
     st.rerun()
 else:
