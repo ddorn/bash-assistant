@@ -1,0 +1,184 @@
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.10"
+# dependencies = [
+#   "icalendar>=5.0",
+#   "google-auth>=2.0",
+#   "google-api-python-client>=2.0",
+#   "python-dotenv>=1.0",
+# ]
+# ///
+"""Import an ICS file into Google Calendar using a service account."""
+
+import os
+import sys
+import webbrowser
+import zoneinfo
+from datetime import date, datetime, timedelta
+from pathlib import Path
+
+import icalendar
+from dotenv import load_dotenv
+from google.oauth2 import service_account
+from googleapiclient.discovery import build
+from googleapiclient.errors import HttpError
+
+load_dotenv(Path.home() / "prog/scripts/.env")
+
+CREDENTIALS_PATH = Path(os.environ.get(
+    "GOOGLE_SERVICE_ACCOUNT_JSON",
+    Path.home() / ".config/google/calendar-service-account.json"
+))
+CALENDAR_ID = os.environ.get("GOOGLE_CALENDAR_ID", "primary")
+SCOPES = ["https://www.googleapis.com/auth/calendar.events"]
+
+
+def load_service():
+    if not CREDENTIALS_PATH.exists():
+        sys.exit(
+            f"Credentials not found at {CREDENTIALS_PATH}\n"
+            "Set GOOGLE_SERVICE_ACCOUNT_JSON env var or place the file there."
+        )
+    creds = service_account.Credentials.from_service_account_file(
+        str(CREDENTIALS_PATH), scopes=SCOPES
+    )
+    return build("calendar", "v3", credentials=creds)
+
+
+def _local_tz() -> str:
+    """Return IANA timezone name from /etc/localtime symlink, or UTC."""
+    lt = Path("/etc/localtime")
+    if lt.is_symlink():
+        parts = lt.resolve().parts
+        try:
+            zi_idx = next(i for i, p in enumerate(parts) if p == "zoneinfo")
+            return "/".join(parts[zi_idx + 1:])
+        except StopIteration:
+            pass
+    return os.environ.get("TZ", "UTC")
+
+
+def to_api_dt(dt_val, tzid=None):
+    """Convert icalendar date/datetime to Google Calendar API format."""
+    if isinstance(dt_val, datetime):
+        try:
+            if dt_val.tzinfo is None and tzid:
+                dt_val = dt_val.replace(tzinfo=zoneinfo.ZoneInfo(str(tzid)))
+            elif dt_val.tzinfo is None:
+                dt_val = dt_val.replace(tzinfo=zoneinfo.ZoneInfo(_local_tz()))
+        except zoneinfo.ZoneInfoNotFoundError as e:
+            sys.exit(f"Unrecognised timezone '{e.args[0]}' — non-IANA timezone IDs (e.g. Outlook/Windows names) are not supported.")
+        tz_name = str(dt_val.tzinfo)
+        return {"dateTime": dt_val.isoformat(), "timeZone": tz_name}
+    elif isinstance(dt_val, date):
+        return {"date": dt_val.isoformat()}
+    return None
+
+
+def parse_events(ics_path: Path) -> list[dict]:
+    cal = icalendar.Calendar.from_ical(ics_path.read_bytes())
+    events = []
+    for component in cal.walk():
+        if component.name != "VEVENT":
+            continue
+
+        for unsupported in ("RRULE", "RDATE", "EXDATE", "EXRULE", "RECURRENCE-ID"):
+            if component.get(unsupported):
+                sys.exit(f"Unsupported property {unsupported} in event '{component.get('SUMMARY')}' — recurring events are not supported.")
+
+        start = component.get("DTSTART")
+        end = component.get("DTEND")
+        duration = component.get("DURATION")
+        tzid = component.get("DTSTART", {}).params.get("TZID") if start else None
+
+        body = {
+            "summary": str(component.get("SUMMARY", "(No title)")),
+        }
+
+        if start:
+            body["start"] = to_api_dt(start.dt, tzid)
+        if end:
+            body["end"] = to_api_dt(end.dt, tzid)
+        elif duration and start:
+            body["end"] = to_api_dt(start.dt + duration.dt, tzid)
+        elif start:
+            # All-day events: end = start + 1 day
+            if isinstance(start.dt, date) and not isinstance(start.dt, datetime):
+                body["end"] = {"date": (start.dt + timedelta(days=1)).isoformat()}
+            else:
+                body["end"] = body["start"]
+
+        if component.get("DESCRIPTION"):
+            body["description"] = str(component.get("DESCRIPTION"))
+        if component.get("LOCATION"):
+            body["location"] = str(component.get("LOCATION"))
+        if component.get("UID"):
+            body["iCalUID"] = str(component.get("UID"))
+
+        # Attendees
+        attendees = component.get("ATTENDEE")
+        if attendees:
+            if not isinstance(attendees, list):
+                attendees = [attendees]
+            body["attendees"] = [
+                {"email": str(a).replace("mailto:", "")} for a in attendees
+            ]
+
+        events.append(body)
+    return events
+
+
+def main():
+    if len(sys.argv) < 2:
+        sys.exit(f"Usage: {sys.argv[0]} <file.ics>")
+
+    ics_path = Path(sys.argv[1])
+    if not ics_path.exists():
+        sys.exit(f"File not found: {ics_path}")
+
+    events = parse_events(ics_path)
+    if not events:
+        sys.exit("No VEVENT components found in the ICS file.")
+
+    service = load_service()
+    imported = 0
+
+    for event in events:
+        try:
+            result = service.events().insert(calendarId=CALENDAR_ID, body=event).execute()
+            link = result.get("htmlLink")
+            print(f"Imported: {event.get('summary')} → {link}")
+            if link:
+                webbrowser.open(link)
+            imported += 1
+        except HttpError as e:
+            if e.resp.status == 409 and event.get("iCalUID"):
+                # Event already exists — update it by fetching its id first
+                try:
+                    existing = service.events().list(
+                        calendarId=CALENDAR_ID,
+                        iCalUID=event["iCalUID"],
+                        maxResults=1,
+                    ).execute().get("items", [])
+                    if existing:
+                        result = service.events().update(
+                            calendarId=CALENDAR_ID,
+                            eventId=existing[0]["id"],
+                            body=event,
+                        ).execute()
+                        link = result.get("htmlLink")
+                        print(f"Updated: {event.get('summary')} → {link}")
+                        if link:
+                            import webbrowser
+                            webbrowser.open(link)
+                        imported += 1
+                        continue
+                except HttpError:
+                    pass
+            print(f"Failed to import '{event.get('summary')}': {e}", file=sys.stderr)
+
+    print(f"\n{imported}/{len(events)} event(s) imported to calendar '{CALENDAR_ID}'.")
+
+
+if __name__ == "__main__":
+    main()
