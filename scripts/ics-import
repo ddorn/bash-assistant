@@ -169,7 +169,6 @@ def main():
                         link = result.get("htmlLink")
                         print(f"Updated: {event.get('summary')} → {link}")
                         if link:
-                            import webbrowser
                             webbrowser.open(link)
                         imported += 1
                         continue
