@@ -654,7 +654,7 @@ def to_logseq(
     print(f"\033[33m{entry}\033[0m")
 
     pdf_url = data["pdf_url"]
-    if pdf_url is None:
+    if not pdf_url:
         rprint("[red]Could not find a pdf automatically![/]")
         pdf_url = input("Please provide an url or a local path to the PDF: ")
 
@@ -669,7 +669,7 @@ def to_logseq(
 
     if pdf_url.startswith("http"):
         print("📄 Downloading PDF...")
-        response = requests.get(data["pdf_url"])
+        response = requests.get(pdf_url)
         pdf_path.write_bytes(response.content)
     else:  # Just copy
         pdf_path.write_bytes(Path(pdf_url).read_bytes())

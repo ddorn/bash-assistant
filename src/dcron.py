@@ -112,9 +112,9 @@ def log_battery():
 @every(minutes=7)
 def go_to_sleep(
     notify: str = "20:00",
-    shutdown: str = "22:30",
+    shutdown: str = "21:30",
     end: str = "07:00",
-    hard_shutdown: str = "00:00",
+    hard_shutdown: str = "22:00",
     hard_shutdown_end: str = "04:00",
     snooze_file: Path = Path("/tmp/no_sleep_today"),
     good_night_music: Path = utils.DATA / "goodnight.mp3",
@@ -231,6 +231,22 @@ def screenshot():
 # @every(minutes=45)
 def random_background():
     pass
+
+
+@every(minutes=120)
+def receive_signal():
+    log_dir = Path("~/logs/signal").expanduser()
+    log_dir.mkdir(parents=True, exist_ok=True)
+    today = datetime.now().strftime("%Y-%m-%d")
+    log_file = log_dir / f"{today}.jsonl"
+    result = subprocess.run(
+        ["signal-cli", "-o", "json", "receive", "--timeout", "5", "--ignore-stories"],
+        capture_output=True,
+        text=True,
+    )
+    if result.stdout.strip():
+        with log_file.open("a") as f:
+            f.write(result.stdout)
 
 
 # %%

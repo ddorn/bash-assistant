@@ -27,6 +27,7 @@ Logs:
 
 import subprocess
 import time
+import random
 from pathlib import Path
 from datetime import datetime, time as dt_time
 
@@ -34,14 +35,21 @@ from datetime import datetime, time as dt_time
 USAGE_MINUTES_THRESHOLD = 20  # Lock screen after X minutes of activity
 CHECK_INTERVAL_SECONDS = 60  # How often the script checks for activity
 # Notify at 5, 3, and 1 minute(s) before the screen locks.
-NOTIFICATION_MINUTES_BEFORE_LOCK = {1, 3, 5}
+# NOTIFICATION_MINUTES_BEFORE_LOCK = {1, 3, 5}
+NOTIFICATION_MINUTES_BEFORE_LOCK = {}
 # IMPORTANT: This value is passed to the swayidle daemon.
 IDLE_TIMEOUT_SECONDS = 60  # Consider user idle no activity for X seconds
 IDLE_MARKER_PATH = Path("/tmp/focus_idle_marker")
 # The script will look for your image here.
 # You can change this to an absolute path if you prefer.
 LOCK_IMAGE_PATH = Path(__file__).parent.parent / "data/deepbreaths.jpg"
+SHOCKING_IMAGES_DIR = Path(__file__).parent.parent / "data/shocking-images"
 DAEMON_SCRIPT_PATH = Path(__file__).parent.parent / "scripts/run_focus_daemon.sh"
+
+# Shocking images time range configuration
+# Between these hours, a random image from SHOCKING_IMAGES_DIR will be used
+SHOCKING_IMAGES_START_TIME = dt_time(23, 0)  # 11:00 PM
+SHOCKING_IMAGES_END_TIME = dt_time(6, 0)  # 6:00 AM
 
 # This is dangerous! If set to a high value
 # the computer will not be usable for the given amount of time.
@@ -53,7 +61,7 @@ LOCK_DURATION_SECONDS = 30  # ! Read the comment above.
 # Set to None to disable time-based override
 OVERRIDE_START_TIME = dt_time(9, 0)  # 9:00 AM
 OVERRIDE_END_TIME = dt_time(20, 0)  # 8:00 PM (20:00)
-OVERRIDE_END_DATE = datetime(2025, 9, 23)  # Override ends on this date (inclusive)
+OVERRIDE_END_DATE = datetime(2026, 4, 18)  # Override ends on this date (inclusive)
 # ---
 
 
@@ -71,6 +79,46 @@ def is_override_active() -> bool:
     # Check if current time is within the override window
     current_time = now.time()
     return OVERRIDE_START_TIME <= current_time <= OVERRIDE_END_TIME
+
+
+def is_shocking_images_time() -> bool:
+    """Check if current time is within the shocking images time range."""
+    current_time = datetime.now().time()
+
+    # Handle time ranges that cross midnight
+    if SHOCKING_IMAGES_START_TIME > SHOCKING_IMAGES_END_TIME:
+        # Range crosses midnight (e.g., 23:00 to 06:00)
+        return (
+            current_time >= SHOCKING_IMAGES_START_TIME or current_time <= SHOCKING_IMAGES_END_TIME
+        )
+    else:
+        # Range within same day
+        return SHOCKING_IMAGES_START_TIME <= current_time <= SHOCKING_IMAGES_END_TIME
+
+
+def get_lock_image_path() -> Path:
+    """Get the appropriate lock image based on current time."""
+    if is_shocking_images_time():
+        # Use a random image from the shocking images directory
+        if SHOCKING_IMAGES_DIR.exists() and SHOCKING_IMAGES_DIR.is_dir():
+            image_files = [
+                f
+                for f in SHOCKING_IMAGES_DIR.iterdir()
+                if f.is_file() and f.suffix.lower() in {".jpg", ".jpeg", ".png", ".gif", ".bmp"}
+            ]
+            if image_files:
+                selected_image = random.choice(image_files)
+                print(f"Using shocking image: {selected_image.name}")
+                return selected_image
+            else:
+                print(f"Warning: No images found in {SHOCKING_IMAGES_DIR}. Using default image.")
+        else:
+            print(
+                f"Warning: Shocking images directory not found at {SHOCKING_IMAGES_DIR}. Using default image."
+            )
+
+    # Use default image
+    return LOCK_IMAGE_PATH
 
 
 def send_notification(message: str):
@@ -143,10 +191,12 @@ def main():
 
 def lock_screen():
     command = ["swaylock"]
-    if LOCK_IMAGE_PATH.exists():
-        command.extend(["-i", str(LOCK_IMAGE_PATH)])
+    lock_image = get_lock_image_path()
+
+    if lock_image.exists():
+        command.extend(["-i", str(lock_image)])
     else:
-        print(f"Warning: Lock image not found at {LOCK_IMAGE_PATH}. Locking without image.")
+        print(f"Warning: Lock image not found at {lock_image}. Locking without image.")
 
     try:
         subprocess.run(command, check=True, capture_output=True, text=True)
@@ -157,7 +207,7 @@ def lock_screen():
 
 
 def keep_screen_locked_for(seconds: int):
-    """Keep the screen locked for a given number of seconds. Re-locking and adding penalty if unlocked early."""
+    """Keep the screen locked for a given number of seconds. Re-locking and resetting to 1-minute block if unlocked early."""
     end_time = time.time() + seconds
     while time.time() < end_time:
         lock_start = time.time()
@@ -168,12 +218,12 @@ def keep_screen_locked_for(seconds: int):
 
         print(f"Screen was locked for {lock_duration:.2f} seconds.")
 
-        # If there's still time remaining, user unlocked early - add penalty
+        # If there's still time remaining, user unlocked early - reset to 1 minute block
         if remaining_time > 0:
-            penalty = 30
-            end_time += penalty
+            reset_duration = 60
+            end_time = time.time() + reset_duration
             print(
-                f"Screen unlocked early! Adding {penalty} second penalty. New remaining time: {end_time - time.time():.2f} seconds."
+                f"Screen unlocked early! Resetting to {reset_duration} second block. Remaining time: {reset_duration} seconds."
             )
 
         time.sleep(1)

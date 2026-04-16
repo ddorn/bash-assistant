@@ -35,22 +35,14 @@ load_dotenv()
 # --- Configuration ---
 TRANSCRIPTION_PROVIDERS = {
     "groq/whisper-large-v3": {"model": "groq/whisper-large-v3", "api_key_env": "GROQ_API_KEY"},
-    "elevenlabs/scribe_v1": {"model": "elevenlabs/scribe_v1", "api_key_env": "ELEVENLABS_API_KEY"},
+    # "elevenlabs/scribe_v1": {"model": "elevenlabs/scribe_v1", "api_key_env": "ELEVENLABS_API_KEY"},
     "openai/whisper-1": {"model": "openai/whisper-1", "api_key_env": "OPENAI_API_KEY"},
 }
 
 REWRITE_PROVIDERS = {
     "groq/llama3-70b": {
-        "model": "groq/llama3-70b-8192",
+        "model": "groq/openai/gpt-oss-120b",
         "api_key_env": "GROQ_API_KEY",
-    },
-    "claude-3.5-haiku": {
-        "model": "anthropic/claude-3-5-haiku-20241022",
-        "api_key_env": "ANTHROPIC_API_KEY",
-    },
-    "gpt-4o": {
-        "model": "openai/gpt-4o",
-        "api_key_env": "OPENAI_API_KEY",
     },
 }
 
@@ -364,6 +356,8 @@ def rewrite_transcript(console: Console, transcript: str, model_name: str) -> st
     system_prompt = """You are an expert editor. Your sole task is to silently correct the text between <transcript> and </transcript>.
 
 Fix any transcription errors, punctuation, and capitalization. Format it into clean paragraphs.
+If the speaker corrects themselves, write only the corrected version. Remove filler words.
+If the speaker adds instructions (e.g. "Write this as a Slack message to my coworkers"), follow the instructions while staying very close to their initial text.
 
 **Only output the corrected text.** Do not add comments, explanations, or any meta-text.
 The output should be a clean, corrected version of the original text, ready to be copied and pasted directly."""
@@ -385,8 +379,6 @@ The output should be a clean, corrected version of the original text, ready to b
 
 def transcribe_audio(console: Console, file_path: Path, state: AppState):
     """Handles the transcription process and prints the result."""
-    # litellm is slow to import at the start of the script, so we delayed it
-    from litellm import transcription
 
     console.print(f"🎤 Transcribing with [bold]{state.provider}[/bold]...", end="")
     transcribe_start = time.time()
@@ -404,6 +396,9 @@ def transcribe_audio(console: Console, file_path: Path, state: AppState):
                 **kwargs,
             ).text.strip()
     else:
+        # litellm is slow to import at the start of the script, so we delayed it
+        from litellm import transcription
+
         with open(file_path, "rb") as audio_file:
             text = transcription(
                 file=audio_file,
@@ -413,14 +408,15 @@ def transcribe_audio(console: Console, file_path: Path, state: AppState):
     transcribe_duration = time.time() - transcribe_start
     console.print(f" {transcribe_duration:.2f}s ✓")
 
+    console.print(f"\n[bold]Transcript:[/bold]\n{text}")
+
     if state.rewrite:
         rewrite_provider_key = state.rewrite_provider
         rewrite_provider_config = REWRITE_PROVIDERS[rewrite_provider_key]
         model_for_rewrite = rewrite_provider_config["model"]
 
         text = rewrite_transcript(console, text, model_for_rewrite)
-
-    console.print(f"\n[bold]Transcript:[/bold]\n{text}")
+        console.print(f"\n[bold]Cleaned transcript:[/bold]\n{text}")
 
     copy_to_clipboard(text)
     console.print("\n[dim]Transcript copied to clipboard.[/dim]")
@@ -492,6 +488,11 @@ def main(
         # Use dataclass defaults, overridden only by CLI args. No config file.
         state = AppState(rewrite=rewrite)
         if provider:
+            # Validate the provider and show options
+            if provider not in TRANSCRIPTION_PROVIDERS:
+                console.print(f"[red]Error: Invalid provider: {provider}[/red]")
+                console.print(f"Available providers: {', '.join(TRANSCRIPTION_PROVIDERS.keys())}")
+                raise typer.Exit(1)
             state.provider = provider
         if language:
             state.language = language
