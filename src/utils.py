@@ -1,4 +1,3 @@
-from dataclasses import dataclass
 from pathlib import Path
 import sys
 from textwrap import dedent
@@ -100,7 +99,6 @@ def ai_chat(
     system: str | None,
     messages: list[dict[str, str]],
     model: str = None,
-    confirm: bool = False,
     **kwargs,
 ) -> str:
     """Chat with the AI using the given messages."""
@@ -110,12 +108,6 @@ def ai_chat(
 
     if system:
         messages = [dict(role="system", content=system)] + messages
-
-    if confirm:
-        estimation = estimate_cost(messages, model)
-
-        if not confirm_action(f"{model}: {estimation}. Confirm?"):
-            return "Aborted."
 
     kwargs.setdefault("temperature", 0.2)
     kwargs.setdefault("max_tokens", 1000)
@@ -143,36 +135,10 @@ def ai_chat(
         return response.choices[0].message.content
 
 
-def confirm_cost(messages: list[dict], model: str, max_cost: float | None) -> bool:
-    """
-    Get confirmation through the CLI if the estimated cost of processing messages if above the threshold.
-
-    Parameters:
-        messages (list[dict]): A list of message dictionaries to be processed.
-        model (str): The name of the model to be used for processing.
-        max_cost (float | None): The maximum allowable cost. If None, the function will always return True.
-
-    Returns:
-        bool: True if the estimated cost is within the max_cost or if max_cost is None. Otherwise, it returns the result of confirm_action.
-    """
-    if max_cost is None:
-        return True
-
-    estimation = estimate_cost(messages, model)
-    msg = f"{model}: {estimation}"
-
-    if estimation.input_cost < max_cost:
-        print(f"{msg}. Confirming automatically.")
-        return True
-    else:
-        return confirm_action(f"{msg}. Confirm?")
-
-
 def ai_stream(
     system: str | None,
     messages: list[dict[str, str]],
     model: str | None = None,
-    confirm: float | None = None,
     **kwargs,
 ) -> Generator[str, None, None]:
     """Stream with the AI using the given messages."""
@@ -182,9 +148,6 @@ def ai_stream(
 
     if system:
         messages = [dict(role="system", content=system)] + messages
-
-    if not confirm_cost(messages, model, confirm):
-        return None
 
     new_kwargs = dict(
         temperature=1.0,
@@ -244,10 +207,10 @@ def print_join(iterable: Iterator[str]) -> str:
     return text
 
 
-def ai_query(system: str, user: str, model: str | None = None, confirm: bool = False) -> str:
+def ai_query(system: str, user: str, model: str | None = None) -> str:
     """Query the AI with the given system and user message."""
 
-    return ai_chat(system, [dict(role="user", content=user)], model=model, confirm=confirm)
+    return ai_chat(system, [dict(role="user", content=user)], model=model)
 
 
 def soft_parse_xml(text: str) -> dict[str, str | dict | list]:
@@ -296,50 +259,6 @@ if __name__ == "__main__":
         ),
     )
     print("XML test passed! 🎉")
-
-
-@dataclass
-class CostEstimation:
-    input_tokens: int
-    input_cost: float
-    output_cost: float
-    is_approximate: bool
-
-    def __str__(self):
-        return (
-            f"Cost for {self.input_tokens} tokens: "
-            f"{self.input_cost:.4f}$ + "
-            f"{self.output_cost * 1000:.4f}$/1k output tokens"
-        )
-
-
-def estimate_cost(messages: list[dict], model: str) -> CostEstimation:
-    """Estimate the cost of the AI completion."""
-
-    import tiktoken
-
-    input_cost, output_cost = constants.ALL_MODELS_COSTS[model]
-
-    try:
-        encoding = tiktoken.encoding_for_model(model)
-        approx = False
-    except KeyError:
-        # This makes it work also for Anthropic models.
-        # This will be less accurate than for OpenAI, but their tokenization is not public
-        encoding = tiktoken.encoding_for_model("gpt-3.5-turbo")
-        approx = True
-
-    input_tokens = 0
-    for msg in messages:
-        input_tokens += len(encoding.encode(msg["content"]))
-        input_tokens += 4  # for the role and the separator
-
-    return CostEstimation(
-        input_tokens=input_tokens,
-        input_cost=input_cost * input_tokens / 1_000_000,
-        output_cost=output_cost / 1_000_000,
-        is_approximate=approx,
-    )
 
 
 def notify(title: str, message: str, urgency: str = "normal"):

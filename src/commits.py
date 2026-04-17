@@ -7,7 +7,6 @@ import typer
 from pydantic import BaseModel
 
 import constants
-import utils
 
 
 class CommitModel(BaseModel):
@@ -66,9 +65,11 @@ Additional guidelines for this codebase:
 {additional_guidelines}"""
 
 
+MAX_DIFF_CHARS = 30_000
+
+
 @app.command()
 def commit(
-    max_cost: float = 0.02,
     commit_file: Path = None,
     model: str = constants.OPENAI_MODEL,
     additional_guidelines: str = "",
@@ -98,6 +99,12 @@ def commit(
     if not diff:
         print("❌ Nothing added to commit.")
         exit(1)
+
+    if len(diff) > MAX_DIFF_CHARS:
+        print(
+            f"❌ Diff is too large ({len(diff):,} chars, limit {MAX_DIFF_CHARS:,}). Stage fewer changes."
+        )
+        return
 
     last_commits = subprocess.run(
         ["git", "log", "--format=%B-----", "-n", "8"],
@@ -139,9 +146,6 @@ def commit(
         dict(role="user", content=diff),
         # dict(role="assistant", content="<commit>"),
     ]
-
-    if not utils.confirm_cost(messages, model, max_cost):
-        return
 
     response = litellm.completion(
         messages=messages,
