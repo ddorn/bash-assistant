@@ -4,8 +4,8 @@ import re
 from textwrap import dedent
 import streamlit as st
 
-import constants
-from utils import ai_stream
+import models
+from llms import ai_stream
 
 system_prompts = {
     "Fix typos": """
@@ -38,7 +38,7 @@ with st.form(key="fix"):
     )
 
     model = st.selectbox(
-        "Model", constants.MODELS, index=constants.MODELS.index(constants.CHEAP_BUT_GOOD)
+        "Model", models.AVAILABLE, index=models.AVAILABLE.index(models.CHEAP_BUT_GOOD)
     )
 
     lets_gooo = st.form_submit_button("Fix", type="primary")

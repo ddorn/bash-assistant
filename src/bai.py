@@ -27,13 +27,9 @@ import yaml
 from rich import print as rprint
 
 import constants
-from utils import (
-    ai_query,
-    ai_stream,
-    fmt_diff,
-    get_text_input,
-    confirm_action,
-)
+import models
+from llms import ai_query, ai_stream
+from utils import fmt_diff, get_text_input, confirm_action
 import commits
 from ynab import app as ynab_app
 from dcron import dcron
@@ -76,7 +72,7 @@ def get_response(
     system: str | None,
     messages: list[dict],
     end_after: str = constants.BASH_END,
-    model: str = constants.OPENAI_MODEL,
+    model: str = models.DEFAULT,
 ) -> str:
     with style("assistant"):
         answer = ""
@@ -115,25 +111,19 @@ app = typer.Typer(add_completion=False)
 
 
 @app.callback(invoke_without_command=True)
-def callback(ctx: typer.Context, anthropic: bool = False):
-    """Interaction with openai's and anthropic's API."""
+def callback(ctx: typer.Context):
+    """Interaction with LLMs via OpenRouter."""
 
-    constants.USE_OPENAI = not anthropic
-
-    # Check that the API key is set.
-    # os.environ.setdefault("OPENAI_API_KEY", "")  # You can add it here too
-    if constants.USE_OPENAI and not os.environ.get("OPENAI_API_KEY"):
-        print("Please set the OPENAI_API_KEY environement variable to your API key: 'sk-...'.")
-        print("Or add it in the code, two lines above this message.")
+    if not os.environ.get("OPENROUTER_API_KEY"):
+        print("Please set the OPENROUTER_API_KEY environment variable.")
         exit(1)
 
-    # If no command is given, run the bash assistant.
     if ctx.invoked_subcommand is None:
         bash_scaffold()
 
 
 @app.command(name="bash")
-def bash_scaffold(model: str = "claude-sonnet-4-20250514"):
+def bash_scaffold(model: str = models.DEFAULT):
     """A bash assistant that can run commands and answer questions about the system."""
 
     import prompt_toolkit as pt

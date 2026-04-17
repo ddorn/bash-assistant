@@ -2,11 +2,12 @@ import re
 import subprocess
 from pathlib import Path
 
-import litellm
 import typer
 from pydantic import BaseModel
 
 import constants
+import models
+from llms import ai_chat
 
 
 class CommitModel(BaseModel):
@@ -71,7 +72,7 @@ MAX_DIFF_CHARS = 30_000
 @app.command()
 def commit(
     commit_file: Path = None,
-    model: str = constants.OPENAI_MODEL,
+    model: str = models.COMMIT,
     additional_guidelines: str = "",
 ):
     """Generate a commit message for the current changes."""
@@ -144,15 +145,9 @@ def commit(
     messages = [
         dict(role="system", content=system),
         dict(role="user", content=diff),
-        # dict(role="assistant", content="<commit>"),
     ]
 
-    response = litellm.completion(
-        messages=messages,
-        model=model,
-        response_format=CommitModel,
-    )
-    answer = response.choices[0].message.content
+    answer = ai_chat(None, messages, model=model, response_format={"type": "json_object"})
     commit = CommitModel.model_validate_json(answer)
 
     message = commit.to_string()

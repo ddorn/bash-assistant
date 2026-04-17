@@ -1,11 +1,7 @@
 from pathlib import Path
 import sys
 from textwrap import dedent
-from typing import Generator, Iterator
-import anthropic
-import openai
-import constants
-import config
+from typing import Iterator
 
 
 DATA = Path(__file__).parent.parent / "data"
@@ -92,111 +88,6 @@ def get_text_input(custom: str | None = "") -> str:
     return text
 
 
-anthropic_client = anthropic.Client(api_key=config.ANTHROPIC_API_KEY)
-
-
-def ai_chat(
-    system: str | None,
-    messages: list[dict[str, str]],
-    model: str = None,
-    **kwargs,
-) -> str:
-    """Chat with the AI using the given messages."""
-
-    if model is None:
-        model = constants.OPENAI_MODEL if constants.USE_OPENAI else constants.ANTHROPIC_MODEL
-
-    if system:
-        messages = [dict(role="system", content=system)] + messages
-
-    kwargs.setdefault("temperature", 0.2)
-    kwargs.setdefault("max_tokens", 1000)
-
-    if "claude" in model:
-        # System message is a kwarg
-        if system:
-            del messages[0]
-
-        message = anthropic_client.messages.create(
-            model=constants.ANTHROPIC_MODEL,
-            system=system,
-            messages=messages,
-            **kwargs,
-        )
-        return message.content[0].text
-    else:
-        if "o3" in model:
-            kwargs.pop("temperature", None)
-        response = openai.chat.completions.create(
-            model=constants.OPENAI_MODEL,
-            messages=messages,
-            **kwargs,
-        )
-        return response.choices[0].message.content
-
-
-def ai_stream(
-    system: str | None,
-    messages: list[dict[str, str]],
-    model: str | None = None,
-    **kwargs,
-) -> Generator[str, None, None]:
-    """Stream with the AI using the given messages."""
-
-    if model is None:
-        model = constants.OPENAI_MODEL if constants.USE_OPENAI else constants.ANTHROPIC_MODEL
-
-    if system:
-        messages = [dict(role="system", content=system)] + messages
-
-    new_kwargs = dict(
-        temperature=1.0,
-    )
-    kwargs = {**new_kwargs, **kwargs}
-
-    if "claude" in model:
-        if system:
-            del messages[0]
-            kwargs["system"] = system
-
-        if messages[-1]["role"] == "assistant":
-            yield messages[-1]["content"]
-
-        kwargs.setdefault("max_tokens", 1000)
-        with anthropic_client.messages.stream(
-            model=model,
-            messages=messages,
-            **kwargs,
-        ) as stream:
-            for text in stream.text_stream:
-                yield text
-    elif "o1" in model:
-        kwargs["temperature"] = 1.0
-        response = openai.chat.completions.create(
-            model=model,
-            messages=messages,
-            **kwargs,
-        )
-        # no streaming for o1!
-        yield response.choices[0].message.content
-
-    else:
-        if "o3" in model:
-            kwargs.pop("temperature", None)
-        response = openai.chat.completions.create(
-            model=model,
-            messages=messages,
-            stream=True,
-            **kwargs,
-        )
-
-        for chunk in response:
-            text = chunk.choices[0].delta.content
-            if text is None:
-                break
-            yield text
-
-
 def print_join(iterable: Iterator[str]) -> str:
     """Print elements of an iterable as they come, and return the joined string."""
 
@@ -205,12 +96,6 @@ def print_join(iterable: Iterator[str]) -> str:
         print(chunk, end="")
         text += chunk
     return text
-
-
-def ai_query(system: str, user: str, model: str | None = None) -> str:
-    """Query the AI with the given system and user message."""
-
-    return ai_chat(system, [dict(role="user", content=user)], model=model)
 
 
 def soft_parse_xml(text: str) -> dict[str, str | dict | list]:
