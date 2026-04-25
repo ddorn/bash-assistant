@@ -20,7 +20,7 @@ def best_of_n(paragraphs: list[str]) -> int:
         f"Which of the following {len(paragraphs)} paragraphs is most interesting for a reader? First think about why each is or isn't interesting.",
         "\n\n".join(f"{i}. {p}" for i, p in enumerate(paragraphs)),
         BestOfN,
-        model=models.CHEAP_BUT_GOOD,
+        model=models.TREE_BOOK,
     )
     return out.best_option_0_based_index
 
@@ -32,7 +32,7 @@ def best_of_n_batched(paragraphs: list[list[str]]) -> list[int]:
             f"Which of the following {len(chunk)} paragraphs is most interesting for a reader? First think about why each is or isn't interesting.",
             "\n\n".join(f"{i}. {p}" for i, p in enumerate(chunk)),
             BestOfN,
-            model=models.CHEAP_BUT_GOOD,
+            model=models.TREE_BOOK,
         )
 
     with ThreadPoolExecutor() as executor:

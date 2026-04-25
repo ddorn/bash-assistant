@@ -37,9 +37,7 @@ with st.form(key="fix"):
         "Text to fix",
     )
 
-    model = st.selectbox(
-        "Model", models.AVAILABLE, index=models.AVAILABLE.index(models.CHEAP_BUT_GOOD)
-    )
+    model = st.selectbox("Model", models.AVAILABLE, index=models.AVAILABLE.index(models.FIX))
 
     lets_gooo = st.form_submit_button("Fix", type="primary")
 

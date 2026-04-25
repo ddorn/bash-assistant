@@ -72,7 +72,7 @@ def get_response(
     system: str | None,
     messages: list[dict],
     end_after: str = constants.BASH_END,
-    model: str = models.DEFAULT,
+    model: str = models.BASH,
 ) -> str:
     with style("assistant"):
         answer = ""
@@ -123,7 +123,7 @@ def callback(ctx: typer.Context):
 
 
 @app.command(name="bash")
-def bash_scaffold(model: str = models.DEFAULT):
+def bash_scaffold(model: str = models.BASH):
     """A bash assistant that can run commands and answer questions about the system."""
 
     import prompt_toolkit as pt
